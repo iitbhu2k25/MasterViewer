@@ -1,0 +1,36 @@
+# Node.js related
+/frontend/node_modules/
+/frontend/.next/
+/frontend/.env
+/frontend/.yarn/
+/node_modules/
+./node_modules/
+
+# Python related
+/backend/__pycache__/
+/backend/.env
+/backend/.mypy_cache/
+/backend/.pytest_cache/
+
+
+# Docker related
+docker-compose.override.yml
+*.log
+postgres_data/
+db_data/
+
+# Build files
+/build/
+/dist/
+
+# Environment and config files
+.env
+*.env.local
+*.env.development
+*.env.production
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+.DS_Store
