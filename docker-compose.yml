@@ -1,5 +1,16 @@
 
 services:
+  # frontend:
+  #   build:
+  #     context: ./frontend/
+  #     dockerfile: dockerfile.frontend 
+  #   image: frontend:latest
+  #   ports:
+  #     - "3000:3000"
+  #   volumes:
+  #     - ./frontend:/home/app:z
+
+  #   command: npm start
   backend:
     build:
       context: ./backend/

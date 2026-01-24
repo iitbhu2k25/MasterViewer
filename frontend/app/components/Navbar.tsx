@@ -21,7 +21,7 @@ interface NavItem {
 // ============================================================================
 
 const navItems: NavItem[] = [
-  { label: 'Home', href: '/dss/dash' },
+  { label: 'Home', href: '/' },
   { label: 'SLCR', href: 'https://www.slcrvaranasi.com/' ,external: true},
   { label: 'DSS', href: 'https://slcrdss.in', external: true },
   
