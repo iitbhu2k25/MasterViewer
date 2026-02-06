@@ -1,193 +1,127 @@
-'use client'
-import Image from 'next/image';
 import Link from 'next/link';
-import React from 'react';
+import { Facebook, Twitter, Instagram, Linkedin, ChevronRight, MapPin, Mail, Phone, ExternalLink } from 'lucide-react';
 
 export default function Footer() {
   return (
-    <footer className="w-full mt-auto">
-      {/* Partner logos section */}
-      <div className="bg-gray-100 text-gray-800 py-8">
-        <div className="container mx-auto px-4">
-          {/* Logo Section */}
-          <div className="flex justify-center items-center flex-wrap gap-5 mb-6">
-            <div className="relative w-32 h-12">
-              <Image
-                src="/Images/footer/logo1.png"
-                alt="Partner Logo"
-                fill
-                sizes="100%"
-                style={{ objectFit: "contain" }}
-                className="scale-135"
-              />
-            </div>
+    <footer className="w-full mt-auto bg-[#0a3d62] text-white">
+      {/* Main Footer Content */}
+      <div className="max-w-[90%] mx-auto py-12 px-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12">
 
-            <div className="relative w-32 h-16">
-              <Image
-                src="/Images/footer/logo2.svg"
-                alt="Trusted Brand"
-                fill
-                sizes="100%"
-                style={{ objectFit: "contain" }}
-              />
+          {/* About Section */}
+          <div className="space-y-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-[2px] bg-orange-400"></div>
+              <h3 className="text-lg font-bold uppercase tracking-wider">About Holistic</h3>
             </div>
-            
-            <div className="relative w-32 h-16">
-              <Image
-                src="/Images/footer/logo3.gif"
-                alt="Company Seal"
-                fill
-                sizes="100%"
-                style={{ objectFit: "contain" }}
-                unoptimized={true}
-              />
-            </div>
-
-            <div className="relative w-32 h-16">
-              <Image
-                src="/Images/footer/iitbhu.png"
-                alt="Certified Mark"
-                fill
-                sizes="100%"
-                style={{ objectFit: "contain" }}
-              />
-            </div>
-
-            <div className="relative w-32 h-16">
-              <Image
-                src="/Images/footer/iitbombay.png"
-                alt="Award Logo"
-                fill
-                sizes="100%"
-                style={{ objectFit: "contain" }}
-              />
-            </div>
-
-            <div className="relative w-32 h-16">
-              <Image
-                src="/Images/footer/download.png"
-                alt="Company Seal"
-                fill
-                sizes="100%"
-                style={{ objectFit: "contain" }}
-              />
-            </div>
-
-            <div className="relative w-32 h-16">
-              <Image
-                src="/Images/footer/IIT_Madras_Logo.svg.png"
-                alt="Company Seal"
-                fill
-                sizes="100%"
-                style={{ objectFit: "contain" }}
-              />
-            </div>
-
-            <div className="relative w-32 h-16">
-              <Image
-                src="/Images/footer/50.png"
-                alt="Company Seal"
-                fill
-                sizes="100%"
-                style={{ objectFit: "contain" }}
-              />
+            <p className="text-sm leading-relaxed text-blue-100/80">
+              Integrated Model for Holistic River Basin Management is a comprehensive initiative for sustainable water resource management, aquifer recharge, and ecosystem restoration in the Ganga tributaries.
+            </p>
+            <div className="flex gap-4">
+              <a href="#" className="p-2 bg-white/10 rounded hover:bg-white/20 transition-colors">
+                <Facebook className="w-4 h-4" />
+              </a>
+              <a href="#" className="p-2 bg-white/10 rounded hover:bg-white/20 transition-colors">
+                <Twitter className="w-4 h-4" />
+              </a>
+              <a href="#" className="p-2 bg-white/10 rounded hover:bg-white/20 transition-colors">
+                <Instagram className="w-4 h-4" />
+              </a>
+              <a href="#" className="p-2 bg-white/10 rounded hover:bg-white/20 transition-colors">
+                <Linkedin className="w-4 h-4" />
+              </a>
             </div>
           </div>
+
+          {/* Quick Links */}
+          <div className="space-y-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-[2px] bg-orange-400"></div>
+              <h3 className="text-lg font-bold uppercase tracking-wider">Quick Links</h3>
+            </div>
+            <ul className="space-y-3">
+              {[
+                { label: 'About Holistic', href: '/about/overview' },
+                { label: 'Groundwater', href: '/water-quality' },
+                { label: 'MAR Zones', href: '/river-stretches' },
+                { label: 'TEM Data', href: '/discharge' }
+              ].map((link, i) => (
+                <li key={i}>
+                  <Link href={link.href} className="flex items-center gap-2 text-sm text-blue-100/80 hover:text-white group transition-colors">
+                    <ChevronRight className="w-3 h-3 text-orange-400 group-hover:translate-x-1 transition-transform" />
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Important Links */}
+          <div className="lg:col-span-1 space-y-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-[2px] bg-orange-400"></div>
+              <h3 className="text-lg font-bold uppercase tracking-wider">Important Links</h3>
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+              {[
+                { label: 'Govt. of India', href: 'https://india.gov.in' },
+                { label: 'Ministry of Jal Shakti', href: 'https://jalshakti-dowr.gov.in' },
+                { label: 'NMCG', href: 'https://nmcg.nic.in' },
+                { label: 'CPCB', href: 'https://cpcb.nic.in' },
+                { label: 'CGWB', href: 'http://cgwb.gov.in' },
+                { label: 'NIH', href: 'https://nihroorkee.gov.in' },
+                { label: 'India-WRIS', href: 'https://indiawris.gov.in' },
+                { label: 'NWDA', href: 'https://nwda.gov.in' },
+                { label: 'IMD', href: 'https://mausam.imd.gov.in' },
+                { label: 'IIT-BHU, Varanasi', href: 'https://iitbhu.ac.in' },
+                { label: 'Govt. of UP', href: 'https://up.gov.in' },
+                { label: 'SLCR', href: '/about/overview' }
+              ].map((link, i) => (
+                <a key={i} href={link.href} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between text-[11px] text-blue-100/80 hover:text-white transition-colors">
+                  {link.label}
+                  <ExternalLink className="w-2 h-2" />
+                </a>
+              ))}
+            </div>
+          </div>
+
+          {/* Contact Us */}
+          <div className="space-y-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-[2px] bg-orange-400"></div>
+              <h3 className="text-lg font-bold uppercase tracking-wider">Contact Us</h3>
+            </div>
+            <div className="space-y-4">
+              <div className="flex gap-3">
+                <MapPin className="w-5 h-5 text-orange-400 shrink-0" />
+                <p className="text-sm text-blue-100/80">
+                  SLCR Lab, Department of Civil Engineering, IIT (BHU), Varanasi - 221005, India
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <Mail className="w-5 h-5 text-orange-400 shrink-0" />
+                <a href="mailto:slcr@iitbhu.ac.in" className="text-sm text-blue-100/80 hover:text-white">
+                  slcr@iitbhu.ac.in
+                </a>
+              </div>
+              <div className="flex gap-3">
+                <Phone className="w-5 h-5 text-orange-400 shrink-0" />
+                <p className="text-sm text-blue-100/80">
+                  +91-542-2361016
+                </p>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
-      
-      {/* Information section */}
-      <div className="bg-[blue] text-white font-bold p-5 text-sm">
-        <div className="max-w-[1140px] mx-auto flex flex-wrap justify-between">
-          <div className="flex-1 min-w-[200px] mr-5 mb-5">
-            <h4 className="text-base mt-0 mb-4 pb-1.5 border-b border-white/20">
-              About Us
-            </h4>
-            <ul className="list-none p-0 m-0">
-              <li className="mb-2">
-                <Link href="#" className="text-white/80 no-underline hover:text-white hover:underline">
-                  About the Project
-                </Link>
-              </li>
-              <li className="mb-2">
-                <Link href="#" className="text-white/80 no-underline hover:text-white hover:underline">
-                  Team
-                </Link>
-              </li>
-              <li className="mb-2">
-                <Link href="#" className="text-white/80 no-underline hover:text-white hover:underline">
-                  Research
-                </Link>
-              </li>
-              <li className="mb-2">
-                <Link href="#" className="text-white/80 no-underline hover:text-white hover:underline">
-                  Publications
-                </Link>
-              </li>
-            </ul>
-          </div>
-          
-          <div className="flex-1 min-w-[200px] mr-5 mb-5">
-            <h4 className="text-base mt-0 mb-4 pb-1.5 border-b border-white/20">
-              Resources
-            </h4>
-            <ul className="list-none p-0 m-0">
-              <li className="mb-2">
-                <Link href="/confident" className="text-white/80 no-underline hover:text-white hover:underline">
-                  Documents
-                </Link>
-              </li>
-              <li className="mb-2">
-                <Link href="#" className="text-white/80 no-underline hover:text-white hover:underline">
-                  Reports
-                </Link>
-              </li>
-              <li className="mb-2">
-                <Link href="#" className="text-white/80 no-underline hover:text-white hover:underline">
-                  Guidelines
-                </Link>
-              </li>
-              <li className="mb-2">
-                <Link href="#" className="text-white/80 no-underline hover:text-white hover:underline">
-                  Data
-                </Link>
-              </li>
-            </ul>
-          </div>
-          
-          <div className="flex-1 min-w-[200px] mr-5 mb-5">
-            <h4 className="text-base mt-0 mb-4 pb-1.5 border-b border-white/20">
-              Policies
-            </h4>
-            <ul className="list-none p-0 m-0">
-              <li className="mb-2">
-                <Link href="#" className="text-white/80 no-underline hover:text-white hover:underline">
-                  Terms of Use
-                </Link>
-              </li>
-              <li className="mb-2">
-                <Link href="#" className="text-white/80 no-underline hover:text-white hover:underline">
-                  Privacy Policy
-                </Link>
-              </li>
-              <li className="mb-2">
-                <Link href="#" className="text-white/80 no-underline hover:text-white hover:underline">
-                  Copyright Policy
-                </Link>
-              </li>
-              <li className="mb-2">
-                <Link href="#" className="text-white/80 no-underline hover:text-white hover:underline">
-                  Accessibility
-                </Link>
-              </li>
-            </ul>
-          </div>
+
+      {/* Copyright Bar */}
+      <div className="bg-[#051d2f] border-t border-white/5 py-4">
+        <div className="max-w-[90%] mx-auto px-4 flex flex-col md:flex-row justify-between items-center text-[12px] text-blue-100/60 font-medium text-center md:text-left gap-4">
+          <p>Copyright © {new Date().getFullYear()} <span className="text-white">Holistic</span> | All Rights Reserved</p>
+          <p>Integrated Model for Holistic River Basin Management, IIT (BHU), Varanasi</p>
         </div>
-      </div> 
-      
-     {/* Copyright bar */}
-      <div className="bg-[lightblue] text-black/100 font-bold text-center py-2.5 text-sm">
-        © {new Date().getFullYear()} Decision Support System for Water Governance. All Rights Reserved.
       </div>
     </footer>
   );

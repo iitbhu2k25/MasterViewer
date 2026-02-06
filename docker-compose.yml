@@ -22,7 +22,14 @@ services:
       - .env
     volumes:
       - ./backend:/home/app:z
-    command: /bin/sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    command: >
+      /bin/sh -c "
+        echo 'Waiting for PostgreSQL to be ready...' &&
+        sleep 10 &&
+        echo 'Running migrations...' &&
+        python manage.py migrate &&
+        python manage.py runserver 0.0.0.0:8000
+      "
     restart: always
     depends_on:
       - db
