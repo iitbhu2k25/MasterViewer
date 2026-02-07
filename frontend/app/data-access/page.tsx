@@ -56,7 +56,7 @@ export default function DataAccessPage() {
             {/* Background Image */}
             <div className="fixed inset-0 z-0">
                 <img
-                    src="/river1.png"
+                    src="/image_9.jpeg"
                     alt="River Management"
                     className="w-full h-full object-cover"
                 />
@@ -77,7 +77,7 @@ export default function DataAccessPage() {
                             >
                                 {/* Back Button */}
                                 <Link
-                                    href="/home"
+                                    href="/"
                                     className="inline-flex items-center gap-2 text-white hover:text-blue-200 transition-colors mb-6"
                                 >
                                     <ArrowLeft className="w-5 h-5" />

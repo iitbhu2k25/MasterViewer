@@ -76,7 +76,7 @@ export default function TopBar() {
                         >
                             <div className="flex flex-col leading-tight">
                                 {/* <span className="font-medium">राष्ट्रीय स्वच्छ गंगा मिशन</span> */}
-                                <span className="text-[15px] opacity-90">Smart laboratory on clean rivers</span>
+                                <span className="text-[15px] opacity-90">Smart Laboratory on Clean Rivers</span>
                             </div>
                         </a>
                     </div>
