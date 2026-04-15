@@ -15,15 +15,21 @@ export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="en">
       <body className="flex flex-col min-h-screen">
-        <TopHeader />
+        <div id="app-top-header">
+          <TopHeader />
+        </div>
         {/* <Header/> */}
-        <Navbar />
+        <div id="app-navbar">
+          <Navbar />
+        </div>
         <main className="flex-grow bg-inherit">
           <ClientWrapper>
             {children}
           </ClientWrapper>
         </main>
-        <Footer />
+        <div id="app-footer">
+          <Footer />
+        </div>
       </body>
     </html>
   );

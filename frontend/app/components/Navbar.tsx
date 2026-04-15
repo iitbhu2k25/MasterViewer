@@ -27,7 +27,8 @@ interface NavItem {
 // ============================================================================
 
 const navItems: NavItem[] = [
-  { label: 'Home', href: '/' },
+  { label: 'Split', href: '/split' },
+  { label: 'Home', href: '/split' },
   {
     label: 'About',
     submenu: [
@@ -39,43 +40,52 @@ const navItems: NavItem[] = [
   {
     label: 'Nirmal Ganga ',
     submenu: [
-      { label: 'River Stretches Information', href: '/river-stretches' },
-      { label: 'River Water Quality', href: '/water-quality' },
-      { label: 'Sewage Load Estimation', href: '/sewage-load' },
-      { label: 'STP Status and Sewage Gap', href: '/stp' },
-      { label: 'Industrial Hotspots', href: '/industries' }
+      { label: 'River Stretches Information', href: '/nirmal-ganga/river-stretches-information' },
+      { label: 'River Water Quality', href: '/nirmal-ganga/river-water-quality' },
+      { label: 'Sewage Load Estimation', href: '/nirmal-ganga/sewage-load-estimation' },
+      { label: 'STP Status and Sewage Gap', href: '/nirmal-ganga/stp-status-and-sewage-gap' },
+      { label: 'Industrial Hotspots', href: '/nirmal-ganga/industrial-hotspots' }
     ]
   },
   {
     label: 'Aviral Ganga',
     submenu: [
-      { label: 'River Discharge Assessment', href: '/discharge' },
-      { label: 'Environmental Flow Maintenance', href: '/eflow' },
-      { label: 'Water Budget Assessment', href: '/water-budget' }
+      { label: 'River Discharge Assessment', href: '/aviral-ganga/river-discharge-assessment' },
+      { label: 'Environmental Flow Maintenance', href: '/aviral-ganga/environmental-flow-maintenance' },
+      { label: 'Water Budget Assessment', href: '/aviral-ganga/water-budget-assessment' }
     ]
   },
   {
     label: 'Arth Ganga  ',
     submenu: [
-      { label: 'Water Bodies Information', href: '/water-bodies' },
-      { label: 'River-Based Economic Linkages', href: '/economic-linkages' }
+      { label: 'Water Bodies Information', href: '/arth-ganga/water-bodies-information' },
+      { label: 'River-Based Economic Linkages', href: '/arth-ganga/river-based-economic-linkages' }
     ]
   },
   {
     label: 'Jan Ganga',
     submenu: [
-      { label: 'Social Attachment and Impact', href: '/social-impact' },
-      { label: 'Community-Centric River Issues', href: '/community-issues' }
+      { label: 'Social Attachment and Impact', href: '/jan-ganga/social-attachment-and-impact' },
+      { label: 'Community-Centric River Issues', href: '/jan-ganga/community-centric-river-issues' }
     ]
   },
   {
     label: 'Gyan Ganga ',
     submenu: [
-      { label: 'River Vulnerability and Interventions', href: '/river-vulnerabilities-intervention' },
-      { label: 'Nature-Based and Decentralized Solutions', href: '/nature-based-solutions' },
-      { label: 'Ongoing Government Schemes', href: '/ongoing-schemes' }
+      { label: 'River Vulnerability and Interventions', href: '/gyan-ganga/river-vulnerability-and-interventions' },
+      { label: 'Nature-Based and Decentralized Solutions', href: '/gyan-ganga/nature-based-and-decentralized-solutions' },
+      { label: 'Ongoing Government Schemes', href: '/gyan-ganga/ongoing-government-schemes' }
     ]
   },
+  {
+    label: 'Jeevant Ganga',
+    submenu: [
+      { label: 'Biodiversity and Ecological Indicators', href: '/jeevant-ganga/biodiversity-ecological-indicators' },
+      { label: 'Habitat Fragmentation and Invasive Species', href: '/jeevant-ganga/habitat-fragmentation-invasive-species' },
+      { label: 'Wetland Priorities and Riparian Buffers', href: '/jeevant-ganga/wetland-priorities-riparian-buffers' }
+    ]
+  },
+  { label: 'Holistic Module', href: '/holistic' },
 
   { label: 'Dashboard', href: '/dashboard' },
   { label: 'Contact us', href: '/contact' },
@@ -192,7 +202,7 @@ export default function ResponsiveNavbar() {
                   className={`block px-8 py-3 text-base hover:bg-orange-200 transition-colors ${pathname === subItem.href ? 'text-orange-700 font-bold' : 'text-slate-700'
                     }`}
                 >
-                  {item.label}
+                  {subItem.label}
                 </Link>
               ))}
             </div>

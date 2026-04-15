@@ -6,7 +6,11 @@ export default function ClientWrapper({ children }: { children: React.ReactNode 
     const pathname = usePathname();
     // Check if it's the home page. In our structure, 'home' is on /
     // The Dashboard is at /dashboard
-    const isHomePage = pathname === '/';
+    const isHomePage =
+        pathname === '/' ||
+        pathname === '/dss/holistic' ||
+        pathname === '/holistic' ||
+        pathname?.startsWith('/split');
 
     if (isHomePage) {
         return <>{children}</>;

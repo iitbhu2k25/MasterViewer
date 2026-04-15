@@ -12,6 +12,8 @@
 /backend/.mypy_cache/
 /backend/.pytest_cache/
 
+/fast_api/media/
+/fast_api/.fastmdb.env/
 
 # Docker related
 docker-compose.override.yml

@@ -1,0 +1,6 @@
+-----------------------------------
+DATABASE 
+
+POSTGRES_USER=admin
+POSTGRES_PASSWORD=admin
+POSTGRES_PORT=5432

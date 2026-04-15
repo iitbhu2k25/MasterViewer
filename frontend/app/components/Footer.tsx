@@ -42,9 +42,9 @@ export default function Footer() {
             <ul className="space-y-3">
               {[
                 { label: 'About Holistic', href: '/about/overview' },
-                { label: 'Groundwater', href: '/water-quality' },
-                { label: 'MAR Zones', href: '/river-stretches' },
-                { label: 'TEM Data', href: '/discharge' }
+                { label: 'Groundwater', href: '/nirmal-ganga/river-water-quality' },
+                { label: 'MAR Zones', href: '/nirmal-ganga/river-stretches-information' },
+                { label: 'TEM Data', href: '/aviral-ganga/river-discharge-assessment' }
               ].map((link, i) => (
                 <li key={i}>
                   <Link href={link.href} className="flex items-center gap-2 text-sm text-blue-100/80 hover:text-white group transition-colors">
