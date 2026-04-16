@@ -49,7 +49,16 @@ export default function SplitModule() {
   const [masterNoteShape, setMasterNoteShape] = useState<StickyNote["shape"]>("sticky");
   const [viewerMessages, setViewerMessages] = useState<ViewerMessage[]>([]);
   const [aviralCriteria, setAviralCriteria] = useState<string[]>([]);
+  /** noteId → viewer sides that have clicked "Reveal" for that note */
+  const [revealedNotes, setRevealedNotes] = useState<Record<string, string[]>>({});
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const handleRevealNote = useCallback((noteId: string, side: string) => {
+    setRevealedNotes((prev) => ({
+      ...prev,
+      [noteId]: [...new Set([...(prev[noteId] ?? []), side])],
+    }));
+  }, []);
 
   const handleSendMessage = useCallback((fromSide: string, fromTitle: string, text: string) => {
     const to: "all" | "main" = fromSide === "bottom" ? "all" : "main";
@@ -171,8 +180,9 @@ export default function SplitModule() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  // When criteria panel is open viewers expand 20% wider — increase top pair offsets to prevent overlap
-  const topPairOffset = aviralCriteria.length > 0 ? 275 : 240;
+  // Dynamic offset: each top viewer is effectiveW*scale px wide; half + gap keeps them from overlapping
+  const topBaseW = aviralCriteria.length > 0 ? Math.round(420 * 1.2) : 420;
+  const topPairOffset = Math.round((topBaseW * viewerScale) / 2) + 20;
 
   const viewerWindows: {
     side: "top" | "topSecondary" | "left" | "right" | "bottom";
@@ -259,6 +269,19 @@ export default function SplitModule() {
             const id = `${Date.now()}-${Math.random()}`;
             setStickyNotes((prev) => [...prev, { id, ownerSide: viewer.side, ...note }]);
             setActiveEditors((prev) => ({ ...prev, [id]: viewer.side }));
+            // Notify all other viewers so they can optionally reveal the note
+            const shapeLabel = note.shape === "text" ? "text label"
+              : note.shape === "sticky" ? "sticky note"
+              : (note.shape ?? "shape");
+            setViewerMessages((prev) => [...prev, {
+              id: `notify-${id}`,
+              text: `placed a ${shapeLabel} on the map`,
+              fromSide: viewer.side,
+              fromTitle: viewer.title,
+              to: "all",
+              timestamp: Date.now(),
+              noteId: id,
+            }]);
           }}
           activeEditors={activeEditors}
           onUpdateStickyNote={handleUpdateStickyNote}
@@ -267,6 +290,8 @@ export default function SplitModule() {
           onSendMessage={(text) => handleSendMessage(viewer.side, viewer.title, text)}
           activeCriteria={aviralCriteria}
           clipApiBase={backendBase}
+          revealedNotes={revealedNotes}
+          onRevealNote={(noteId) => handleRevealNote(noteId, viewer.side)}
         />
       ))}
 

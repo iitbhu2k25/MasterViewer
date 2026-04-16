@@ -236,6 +236,15 @@ function StickyMapClickHandler({
   return null;
 }
 
+function hexToRgba(hex: string, alpha: number): string {
+  if (!hex || hex === "transparent" || !hex.startsWith("#")) return hex;
+  const h = hex.replace("#", "");
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 /** Div-overlay layer — mirrors StickyNotesLayer in SplitMapViewer for identical inline editing */
 function StickyNotesOverlay({
   stickyNotes,
@@ -299,7 +308,7 @@ function StickyNotesOverlay({
                     fontWeight: 700,
                     color: "#1e293b",
                     textShadow: "0 0 4px rgba(255,255,255,0.9), 0 1px 3px rgba(255,255,255,0.7)",
-                    background: isEditing ? "rgba(255,255,255,0.88)" : "transparent",
+                    background: isEditing ? "rgba(255,255,255,0.78)" : "transparent",
                     padding: isEditing ? "3px 7px" : "1px 3px",
                     borderRadius: 5,
                     border: isEditing ? "2px solid #3b82f6" : "none",
@@ -339,7 +348,7 @@ function StickyNotesOverlay({
                 padding: isEditing
                   ? (note.shape === "triangle" ? "32px 12px 10px" : "24px 12px 12px")
                   : (note.shape === "triangle" ? "24px 10px 6px" : 10),
-                background: note.color,
+                background: hexToRgba(note.color, 0.5),
                 color: "#1e293b",
                 borderRadius: note.shape === "oval" ? "50%" : (note.shape === "rect" || note.shape === "rhombus" || note.shape === "triangle" ? 0 : 6),
                 border: isEditing ? "3px solid #3b82f6" : "1px solid rgba(15,23,42,0.12)",

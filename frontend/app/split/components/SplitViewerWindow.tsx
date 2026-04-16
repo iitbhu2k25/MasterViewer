@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import dynamic from "next/dynamic";
 import { BasemapType } from "../../(holistic-approach)/holistic/components/AdminMap";
 import { FeatureCollection } from "../../(holistic-approach)/holistic/types/location";
@@ -29,6 +29,8 @@ export type ViewerMessage = {
   /** "all" = sent by main screen → everyone sees it; "main" = sent by other screen → only main sees it */
   to: "all" | "main";
   timestamp: number;
+  /** Present when the message is a note-placement notification — enables the Reveal button */
+  noteId?: string;
 };
 
 export type SplitViewerWindowProps = {
@@ -55,6 +57,9 @@ export type SplitViewerWindowProps = {
   onSendMessage?: (text: string) => void;
   activeCriteria?: string[];
   clipApiBase: string;
+  /** noteId → list of viewer sides that have opted-in to see that note */
+  revealedNotes?: Record<string, string[]>;
+  onRevealNote?: (noteId: string) => void;
 };
 
 const BEZEL_ACCENT = "#5f5099 ";
@@ -200,9 +205,16 @@ export default function SplitViewerWindow({
   onSendMessage,
   activeCriteria = [],
   clipApiBase,
+  revealedNotes = {},
+  onRevealNote,
 }: SplitViewerWindowProps) {
   const cfg = sideConfig[side];
+  // Extract the rotation angle from the CSS string e.g. "rotate(-90deg)" → -90
+  const rotationAngle = parseInt(cfg.rotation.match(/-?\d+/)?.[0] ?? "0", 10);
   const effectiveW = activeCriteria.length > 0 ? Math.round(cfg.size.w * 1.2) : cfg.size.w;
+  // Use actual pixel dimensions (not CSS scale) so Leaflet renders tiles at full resolution → no blur
+  const scaledW = Math.round(effectiveW * scale);
+  const scaledH = Math.round(cfg.size.h * scale);
   const [offset, setOffset] = useState(initialOffset);
   const [criteriaWidth, setCriteriaWidth] = useState(160);
   const criteriaDragRef = useRef<{ startX: number; startW: number } | null>(null);
@@ -225,7 +237,49 @@ export default function SplitViewerWindow({
   const dragStart = useRef(0);
   const offsetStart = useRef(0);
   const panelRef = useRef<HTMLDivElement>(null);
+  const toolsMenuRef = useRef<HTMLDivElement>(null);
+  const msgKeyboardRef = useRef<HTMLDivElement>(null);
+  const stickyKeyboardRef = useRef<HTMLDivElement>(null);
+  const msgInputRef = useRef<HTMLInputElement>(null);
   const editingTextRef = useRef("");
+
+  useEffect(() => {
+    const handleClickOutside = (e: PointerEvent) => {
+      const target = e.target as HTMLElement;
+
+      // 1. Tools Menu Click Outside
+      if (showToolsMenu && toolsMenuRef.current && !toolsMenuRef.current.contains(target)) {
+        // If target is the toggle button, let the button's own onClick handle it
+        const toggleBtn = panelRef.current?.querySelector('[title="Tools Menu"]');
+        if (!toggleBtn || !toggleBtn.contains(target)) {
+          setShowToolsMenu(false);
+          setActiveSubMenu("none");
+          setStickyMode(false);
+        }
+      }
+
+      // 2. Message Keyboard Click Outside
+      if (showMsgKeyboard && msgKeyboardRef.current && !msgKeyboardRef.current.contains(target)) {
+        if (msgInputRef.current && !msgInputRef.current.contains(target)) {
+          setShowMsgKeyboard(false);
+        }
+      }
+
+      // 3. Sticky Note Editor Click Outside (Bezel/Panels)
+      // Map clicks are handled by MapClickHandler in SplitMapViewer.
+      if (editingStickyNoteId && stickyKeyboardRef.current && !stickyKeyboardRef.current.contains(target)) {
+        const mapContainer = panelRef.current?.querySelector(".leaflet-container");
+        const isOutsideMap = !mapContainer || !mapContainer.contains(target);
+        if (isOutsideMap) {
+          onOpenStickyEditor?.(null);
+        }
+      }
+    };
+
+    window.addEventListener("pointerdown", handleClickOutside, { capture: true });
+    return () => window.removeEventListener("pointerdown", handleClickOutside, { capture: true });
+  }, [showToolsMenu, showMsgKeyboard, editingStickyNoteId, onOpenStickyEditor]);
+
 
   useEffect(() => {
     setOffset(initialOffset);
@@ -286,10 +340,10 @@ export default function SplitViewerWindow({
       if (!dragging.current) return;
       const delta = cfg.axis === "x" ? e.clientX - dragStart.current : e.clientY - dragStart.current;
       const raw = offsetStart.current + delta;
-      const clamped = cfg.clampOffset(raw, window.innerWidth, window.innerHeight, cfg.size.w, cfg.size.h);
+      const clamped = cfg.clampOffset(raw, window.innerWidth, window.innerHeight, scaledW, scaledH);
       setOffset(clamped);
     },
-    [cfg],
+    [cfg, scaledW, scaledH],
   );
 
   const onPointerUp = useCallback(() => {
@@ -318,6 +372,23 @@ export default function SplitViewerWindow({
 
   const stickyToolActive = showToolsMenu || stickyMode || !!editingStickyNoteId;
 
+  /**
+   * Notes visible on THIS viewer:
+   * Each viewer only sees notes it placed itself, plus any notes it has revealed.
+   * The central AdminMap (not this viewer) always shows all notes.
+   */
+  const visibleNotes = useMemo(() => {
+    return stickyNotes.filter(
+      (n) => n.ownerSide === side || (revealedNotes[n.id]?.includes(side) ?? false),
+    );
+  }, [stickyNotes, side, revealedNotes]);
+
+  // When scale changes, tell Leaflet to recompute its container size
+  useEffect(() => {
+    const t = window.setTimeout(() => window.dispatchEvent(new Event("resize")), 150);
+    return () => window.clearTimeout(t);
+  }, [scale]);
+
   const dragCursor = cfg.axis === "x" ? "ew-resize" : "ns-resize";
   const posStyle = visible ? cfg.getVisibleStyle(offset) : cfg.getHiddenStyle(offset);
 
@@ -326,8 +397,8 @@ export default function SplitViewerWindow({
       ref={panelRef}
       className="split-viewer-panel absolute z-[920] pointer-events-auto"
       style={{
-        width: effectiveW,
-        height: cfg.size.h,
+        width: scaledW,
+        height: scaledH,
         ...posStyle,
         opacity: visible ? 1 : 0,
         transition: dragging.current
@@ -338,7 +409,7 @@ export default function SplitViewerWindow({
       <div
         className="relative flex h-full w-full flex-col overflow-hidden"
         style={{
-          transform: `${cfg.rotation} scale(${scale})`,
+          transform: cfg.rotation,
           transformOrigin: "center center",
           background: BEZEL_ACCENT,
           borderRadius: "18px",
@@ -354,7 +425,7 @@ export default function SplitViewerWindow({
         <div
           className="flex shrink-0 items-center justify-between select-none"
           style={{
-            height: "30px",
+            height: "44px",
             padding: "0 10px",
             cursor: dragCursor,
             background: BEZEL_ACCENT,
@@ -400,7 +471,8 @@ export default function SplitViewerWindow({
               justifyContent: "center",
               background: "transparent",
               border: "none",
-              padding: 0,
+              padding: "10px 8px",
+              margin: "-10px -8px",
             }}
             title="Tools Menu"
           >
@@ -430,10 +502,11 @@ export default function SplitViewerWindow({
             >
               {showToolsMenu ? (
                 <div
+                  ref={toolsMenuRef}
                   style={{
                     display: "flex",
                     flexDirection: "column",
-                    width: 120,
+                    width: 132,
                     padding: "6px",
                     borderRadius: 12,
                     background: "rgba(255,255,255,0.98)",
@@ -450,7 +523,7 @@ export default function SplitViewerWindow({
                       title="Sticky Note"
                       onClick={() => setActiveSubMenu(activeSubMenu === "colors" ? "none" : "colors")}
                       style={{
-                        width: 30, height: 30, borderRadius: 7,
+                        width: 38, height: 38, borderRadius: 9,
                         border: activeSubMenu === "colors" ? "2px solid #3b82f6" : "1px solid #cbd5e1",
                         background: activeSubMenu === "colors" ? "#eff6ff" : "#f8fafc",
                         display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
@@ -474,7 +547,7 @@ export default function SplitViewerWindow({
                         setActiveSubMenu("none");
                       }}
                       style={{
-                        width: 30, height: 30, borderRadius: 7, border: "1px solid #cbd5e1",
+                        width: 38, height: 38, borderRadius: 9, border: "1px solid #cbd5e1",
                         background: "#f8fafc",
                         display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
                       }}
@@ -492,7 +565,7 @@ export default function SplitViewerWindow({
                       title="Shapes"
                       onClick={() => setActiveSubMenu(activeSubMenu === "shapes" ? "none" : "shapes")}
                       style={{
-                        width: 30, height: 30, borderRadius: 7, border: activeSubMenu === "shapes" ? "2px solid #3b82f6" : "1px solid #cbd5e1",
+                        width: 38, height: 38, borderRadius: 9, border: activeSubMenu === "shapes" ? "2px solid #3b82f6" : "1px solid #cbd5e1",
                         background: activeSubMenu === "shapes" ? "#eff6ff" : "#f8fafc",
                         display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
                       }}
@@ -521,7 +594,7 @@ export default function SplitViewerWindow({
                             setActiveSubMenu("none");
                           }}
                           style={{
-                            width: 22, height: 22, borderRadius: 5,
+                            width: 34, height: 34, borderRadius: 8,
                             border: noteColor === color && noteShape === "sticky" ? "2px solid #0f172a" : "1px solid #cbd5e1",
                             background: color, cursor: "pointer",
                           }}
@@ -546,7 +619,7 @@ export default function SplitViewerWindow({
                             setActiveSubMenu("none");
                           }}
                           style={{
-                            width: 26, height: 26, borderRadius: 5,
+                            width: 34, height: 34, borderRadius: 8,
                             display: "flex", alignItems: "center", justifyContent: "center",
                             border: noteShape === shape ? "2px solid #3b82f6" : "1px solid #cbd5e1",
                             background: "#f1f5f9", cursor: "pointer",
@@ -579,7 +652,7 @@ export default function SplitViewerWindow({
                 layerState={layerState}
                 mapView={mapView}
                 selectedZones={selectedZones}
-                stickyNotes={stickyNotes}
+                stickyNotes={visibleNotes}
                 stickyMode={stickyMode}
                 onMapClick={handleMapNotePlacement}
                 editingStickyNoteId={editingStickyNoteId}
@@ -589,37 +662,42 @@ export default function SplitViewerWindow({
                 viewerSide={side}
                 activeCriteria={activeCriteria}
                 clipApiBase={clipApiBase}
+                mapRotation={rotationAngle}
               />
             ) : null}
             {editedNote && onUpdateStickyNote && editingStickyNoteId ? (
-              <VirtualKeyboard
-                value={editedNote.text}
-                onChange={(val) => onUpdateStickyNote(editingStickyNoteId, val)}
-              />
+              <div ref={stickyKeyboardRef} className="absolute inset-0 pointer-events-none z-[9999]" style={{ transform: "none" }}>
+                <VirtualKeyboard
+                  value={editedNote.text}
+                  onChange={(val) => onUpdateStickyNote(editingStickyNoteId, val)}
+                />
+              </div>
             ) : null}
             {/* Message keyboard — all screens */}
             {showMsgKeyboard ? (
-              <VirtualKeyboard
-                value={msgInput}
-                onChange={(val) => {
-                  // {enter} appends \n — treat that as Send
-                  if (val.endsWith("\n")) {
-                    const text = val.trimEnd();
-                    if (text) { onSendMessage?.(text); }
-                    setMsgInput("");
-                    setShowMsgKeyboard(false);
-                  } else {
-                    setMsgInput(val);
-                  }
-                }}
-              />
+              <div ref={msgKeyboardRef} className="absolute inset-0 pointer-events-none z-[9999]" style={{ transform: "none" }}>
+                <VirtualKeyboard
+                  value={msgInput}
+                  onChange={(val) => {
+                    // {enter} appends \n — treat that as Send
+                    if (val.endsWith("\n")) {
+                      const text = val.trimEnd();
+                      if (text) { onSendMessage?.(text); }
+                      setMsgInput("");
+                      setShowMsgKeyboard(false);
+                    } else {
+                      setMsgInput(val);
+                    }
+                  }}
+                />
+              </div>
             ) : null}
             </div>
             {activeCriteria.length > 0 && (
               <>
-                {/* Draggable divider */}
+                {/* Draggable divider — 18px hit area, 5px visual bar */}
                 <div
-                  style={{ width: 5, flexShrink: 0, cursor: "col-resize", background: "#bfdbfe", position: "relative", zIndex: 10 }}
+                  style={{ width: 18, flexShrink: 0, cursor: "col-resize", position: "relative", zIndex: 10 }}
                   onPointerDown={(e) => {
                     e.stopPropagation();
                     criteriaDragRef.current = { startX: e.clientX, startW: criteriaWidth };
@@ -628,13 +706,14 @@ export default function SplitViewerWindow({
                   onPointerMove={(e) => {
                     if (!criteriaDragRef.current) return;
                     e.stopPropagation();
-                    // dragging left → increase criteria width; right → decrease
                     const dx = criteriaDragRef.current.startX - e.clientX;
                     setCriteriaWidth(Math.max(90, Math.min(effectiveW - 80, criteriaDragRef.current.startW + dx)));
                   }}
                   onPointerUp={(e) => { e.stopPropagation(); criteriaDragRef.current = null; }}
                   onPointerCancel={() => { criteriaDragRef.current = null; }}
-                />
+                >
+                  <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", top: 0, bottom: 0, width: 5, background: "#bfdbfe" }} />
+                </div>
                 <div style={{ width: criteriaWidth, flexShrink: 0, overflow: "hidden" }}>
                   <CriteriaDataPanel activeCriteria={activeCriteria} selectedZones={selectedZones} />
                 </div>
@@ -656,6 +735,7 @@ export default function SplitViewerWindow({
             {/* LEFT — Send */}
             <div style={{ flex: "0 0 50%", display: "flex", alignItems: "center", padding: "5px 6px", borderRight: "1px solid #bfdbfe", gap: 4 }}>
               <input
+                ref={msgInputRef}
                 type="text"
                 value={msgInput}
                 onChange={(e) => setMsgInput(e.target.value)}
@@ -690,16 +770,33 @@ export default function SplitViewerWindow({
               </p>
               <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
                 {(() => {
-                  const visible = messages.filter((m) =>
+                  const inbound = messages.filter((m) =>
                     side === "bottom" ? m.fromSide !== side : m.to === "all",
                   );
-                  if (!visible.length) return <span style={{ fontSize: 8, color: "#94a3b8", fontStyle: "italic" }}>No messages yet.</span>;
-                  return visible.map((m) => (
-                    <div key={m.id} style={{ fontSize: 9, color: "#1e293b", background: "#e2e8f0", borderRadius: 4, padding: "2px 5px", lineHeight: 1.3 }}>
-                      <span style={{ fontSize: 8, fontWeight: 700, color: BEZEL_ACCENT }}>{m.fromTitle}: </span>
-                      {m.text}
-                    </div>
-                  ));
+                  if (!inbound.length) return <span style={{ fontSize: 8, color: "#94a3b8", fontStyle: "italic" }}>No messages yet.</span>;
+                  return inbound.map((m) => {
+                    const isNoteNotif = !!m.noteId && m.fromSide !== side;
+                    const alreadyRevealed = m.noteId ? (revealedNotes[m.noteId]?.includes(side) ?? false) : false;
+                    return (
+                      <div key={m.id} style={{ fontSize: 9, color: "#1e293b", background: isNoteNotif ? "#eff6ff" : "#e2e8f0", borderRadius: 4, padding: "2px 5px", lineHeight: 1.4, border: isNoteNotif ? "1px solid #bfdbfe" : "none" }}>
+                        <span style={{ fontSize: 8, fontWeight: 700, color: BEZEL_ACCENT }}>{m.fromTitle}: </span>
+                        {m.text}
+                        {isNoteNotif && (
+                          <button
+                            type="button"
+                            onClick={() => !alreadyRevealed && onRevealNote?.(m.noteId!)}
+                            style={{
+                              marginLeft: 4, fontSize: 7, fontWeight: 700, cursor: alreadyRevealed ? "default" : "pointer",
+                              background: alreadyRevealed ? "#d1fae5" : "#2563eb", color: alreadyRevealed ? "#065f46" : "#fff",
+                              border: "none", borderRadius: 3, padding: "1px 5px", flexShrink: 0,
+                            }}
+                          >
+                            {alreadyRevealed ? "Visible ✓" : "Reveal"}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  });
                 })()}
                 <div ref={msgEndRef} />
               </div>

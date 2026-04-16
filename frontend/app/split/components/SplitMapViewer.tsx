@@ -33,22 +33,30 @@ function MapViewSync({
   return null;
 }
 
-function StickyMapClickHandler({
-  enabled,
+function MapClickHandler({
+  stickyMode,
   onMapClick,
+  editingStickyNoteId,
+  onOpenStickyEditor,
 }: {
-  enabled: boolean;
+  stickyMode: boolean;
   onMapClick?: (lat: number, lng: number) => void;
+  editingStickyNoteId?: string | null;
+  onOpenStickyEditor?: (id: string | null) => void;
 }) {
   useMapEvents({
     click(event) {
-      if (!enabled || !onMapClick) return;
-      onMapClick(event.latlng.lat, event.latlng.lng);
+      if (stickyMode && onMapClick) {
+        onMapClick(event.latlng.lat, event.latlng.lng);
+      } else if (editingStickyNoteId) {
+        onOpenStickyEditor?.(null);
+      }
     },
   });
 
   return null;
 }
+
 
 function MapInteractivity({ interactive }: { interactive: boolean }) {
   const map = useMap();
@@ -150,7 +158,7 @@ function StickyNotesLayer({
                     fontWeight: 700,
                     color: "#1e293b",
                     textShadow: "0 0 4px rgba(255,255,255,0.9), 0 1px 3px rgba(255,255,255,0.7)",
-                    background: isEditing ? "rgba(255,255,255,0.88)" : "transparent",
+                    background: isEditing ? "rgba(255,255,255,0.78)" : "transparent",
                     padding: isEditing ? "3px 7px" : "1px 3px",
                     borderRadius: 5,
                     border: isEditing ? "2px solid #3b82f6" : "none",
@@ -194,7 +202,7 @@ function StickyNotesLayer({
                 padding: isEditing
                   ? (note.shape === "triangle" ? "32px 12px 10px" : "24px 12px 12px")
                   : (note.shape === "triangle" ? "24px 10px 6px" : 10),
-                background: note.color,
+                background: hexToRgba(note.color, 0.5),
                 color: "#1e293b",
                 borderRadius: note.shape === "oval" ? "50%" : (note.shape === "rect" || note.shape === "rhombus" || note.shape === "triangle" ? 0 : 6),
                 border: isEditing ? "3px solid #3b82f6" : "1px solid rgba(15,23,42,0.12)",
@@ -262,6 +270,96 @@ function StickyNotesLayer({
   );
 }
 
+/**
+ * Fixes touch-pan direction for CSS-rotated viewer maps.
+ * Leaflet reads touch clientX/Y in screen space but the map container is CSS-rotated,
+ * so the raw delta produces wrong-direction panning. We intercept touchmove in the
+ * capture phase, compute the geometrically correct panBy arguments, and stop
+ * propagation so Leaflet's own drag handler never fires.
+ */
+function MapDragRotationFix({ angleDeg }: { angleDeg: number }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!angleDeg) return; // 0° = Leaflet default is already correct
+
+    const rad = (angleDeg * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+
+    let active = false;
+    let startX = 0, startY = 0, lastX = 0, lastY = 0;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      active = true;
+      startX = lastX = e.touches[0].clientX;
+      startY = lastY = e.touches[0].clientY;
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!active || e.touches.length !== 1) return;
+      // Always intercept so Leaflet doesn't also process the event and double-pan
+      e.stopPropagation();
+
+      const cx = e.touches[0].clientX;
+      const cy = e.touches[0].clientY;
+      const dx = cx - lastX;
+      const dy = cy - lastY;
+      lastX = cx;
+      lastY = cy;
+
+      // Below tap threshold — do nothing (let Leaflet fire a click on touchend)
+      if (Math.hypot(cx - startX, cy - startY) < 5) return;
+
+      e.preventDefault();
+      if (!dx && !dy) return;
+
+      // Derived from CSS-rotation geometry: panBy args that make tiles visually follow the finger.
+      // panBy_x = -dx*cos(θ) + dy*sin(θ)
+      // panBy_y = -dx*sin(θ) - dy*cos(θ)
+      map.panBy([-dx * cos + dy * sin, -dx * sin - dy * cos], { animate: false });
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (!active) return;
+      active = false;
+      const t = e.changedTouches[0];
+      // Suppress the spurious click Leaflet would fire after a real drag
+      if (Math.hypot(t.clientX - startX, t.clientY - startY) >= 5) {
+        e.stopPropagation();
+      }
+    };
+
+    const onTouchCancel = () => { active = false; };
+
+    const container = map.getContainer();
+    container.addEventListener("touchstart",  onTouchStart,  { passive: true,  capture: true });
+    container.addEventListener("touchmove",   onTouchMove,   { passive: false, capture: true });
+    container.addEventListener("touchend",    onTouchEnd,    { capture: true });
+    container.addEventListener("touchcancel", onTouchCancel, { passive: true, capture: true });
+
+    return () => {
+      container.removeEventListener("touchstart",  onTouchStart,  true);
+      container.removeEventListener("touchmove",   onTouchMove,   true);
+      container.removeEventListener("touchend",    onTouchEnd,    true);
+      container.removeEventListener("touchcancel", onTouchCancel, true);
+    };
+  }, [map, angleDeg]);
+
+  return null;
+}
+
+/** Convert a hex color to rgba so the sticky note background is translucent but text stays opaque */
+function hexToRgba(hex: string, alpha: number): string {
+  if (!hex || hex === "transparent" || !hex.startsWith("#")) return hex;
+  const h = hex.replace("#", "");
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 /** Mirrors the same property-name fallback used in AdminMap */
 function getZoneName(feature: any): string {
   const props = feature?.properties || {};
@@ -292,6 +390,8 @@ type Props = {
   onOpenStickyEditor?: (id: string | null) => void;
   activeCriteria?: string[];
   clipApiBase: string;
+  /** CSS rotation angle applied to the viewer container (0, 90, 180, -90). Used to fix touch-pan direction. */
+  mapRotation?: number;
 };
 
 export default function SplitMapViewer({
@@ -315,6 +415,7 @@ export default function SplitMapViewer({
   onOpenStickyEditor,
   activeCriteria = [],
   clipApiBase,
+  mapRotation = 0,
 }: Props) {
   const tileConfig = BASEMAP_TILES[basemap];
 
@@ -425,9 +526,15 @@ export default function SplitMapViewer({
         </>
       )}
 
-      <StickyMapClickHandler enabled={stickyMode} onMapClick={onMapClick} />
+      <MapClickHandler
+        stickyMode={stickyMode}
+        onMapClick={onMapClick}
+        editingStickyNoteId={editingStickyNoteId}
+        onOpenStickyEditor={onOpenStickyEditor}
+      />
       <MapViewSync mapView={mapView} paused={pauseSync} />
       <MapInteractivity interactive={interactive} />
+      {mapRotation !== 0 && <MapDragRotationFix angleDeg={mapRotation} />}
       <StickyNotesLayer
         stickyNotes={stickyNotes}
         editingStickyNoteId={editingStickyNoteId}
