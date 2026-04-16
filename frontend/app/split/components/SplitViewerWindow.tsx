@@ -240,6 +240,7 @@ export default function SplitViewerWindow({
   const dragging = useRef(false);
   const dragStart = useRef(0);
   const offsetStart = useRef(0);
+  const offsetRef = useRef(initialOffset);
   const panelRef = useRef<HTMLDivElement>(null);
   const toolsMenuRef = useRef<HTMLDivElement>(null);
   const msgKeyboardRef = useRef<HTMLDivElement>(null);
@@ -386,6 +387,102 @@ export default function SplitViewerWindow({
       (n) => n.ownerSide === side || (revealedNotes[n.id]?.includes(side) ?? false),
     );
   }, [stickyNotes, side, revealedNotes]);
+
+  // Keep offsetRef in sync so native touch handlers always read latest value
+  useEffect(() => { offsetRef.current = offset; }, [offset]);
+
+  // Touch drag from anywhere on the panel (threshold-based so taps still work)
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    let touchActive = false;
+    let touchMoved = false;
+    let tStartMain = 0; // primary axis start
+    let tStartCross = 0; // cross axis start
+    let tOffsetStart = 0;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      touchActive = true;
+      touchMoved = false;
+      tStartMain = cfg.axis === "x" ? e.touches[0].clientX : e.touches[0].clientY;
+      tStartCross = cfg.axis === "x" ? e.touches[0].clientY : e.touches[0].clientX;
+      tOffsetStart = offsetRef.current;
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!touchActive || e.touches.length !== 1) return;
+      const main = cfg.axis === "x" ? e.touches[0].clientX : e.touches[0].clientY;
+      const cross = cfg.axis === "x" ? e.touches[0].clientY : e.touches[0].clientX;
+      const dMain = main - tStartMain;
+      const dCross = cross - tStartCross;
+
+      if (!touchMoved) {
+        if (Math.abs(dMain) < 6 && Math.abs(dCross) < 6) return;
+        // If cross-axis movement dominates, let the event pass (don't steal it)
+        if (Math.abs(dCross) > Math.abs(dMain)) { touchActive = false; return; }
+        touchMoved = true;
+      }
+
+      e.preventDefault();
+      e.stopPropagation();
+      const raw = tOffsetStart + dMain;
+      const clamped = cfg.clampOffset(raw, window.innerWidth, window.innerHeight, scaledW, scaledH);
+      setOffset(clamped);
+    };
+
+    const onTouchEnd = () => { touchActive = false; };
+
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd, { passive: true });
+    el.addEventListener("touchcancel", onTouchEnd, { passive: true });
+
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, [cfg, scaledW, scaledH]);
+
+  // Keyboard nudge: arrow keys when pointer is hovering over the panel
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    let hovered = false;
+    const onEnter = () => { hovered = true; };
+    const onLeave = () => { hovered = false; };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!hovered) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      const STEP = e.shiftKey ? 40 : 10;
+      let delta = 0;
+      if (cfg.axis === "x") {
+        if (e.key === "ArrowLeft") delta = -STEP;
+        else if (e.key === "ArrowRight") delta = STEP;
+      } else {
+        if (e.key === "ArrowUp") delta = -STEP;
+        else if (e.key === "ArrowDown") delta = STEP;
+      }
+      if (!delta) return;
+      e.preventDefault();
+      setOffset((prev) => {
+        const raw = prev + delta;
+        return cfg.clampOffset(raw, window.innerWidth, window.innerHeight, scaledW, scaledH);
+      });
+    };
+
+    el.addEventListener("mouseenter", onEnter);
+    el.addEventListener("mouseleave", onLeave);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      el.removeEventListener("mouseenter", onEnter);
+      el.removeEventListener("mouseleave", onLeave);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [cfg, scaledW, scaledH]);
 
   // When scale changes, tell Leaflet to recompute its container size
   useEffect(() => {
