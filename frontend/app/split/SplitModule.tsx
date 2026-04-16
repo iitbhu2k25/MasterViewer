@@ -60,6 +60,13 @@ export default function SplitModule() {
     }));
   }, []);
 
+  const handleHideNote = useCallback((noteId: string, side: string) => {
+    setRevealedNotes((prev) => ({
+      ...prev,
+      [noteId]: (prev[noteId] ?? []).filter((s) => s !== side),
+    }));
+  }, []);
+
   const handleSendMessage = useCallback((fromSide: string, fromTitle: string, text: string) => {
     const to: "all" | "main" = fromSide === "bottom" ? "all" : "main";
     setViewerMessages((prev) => [
@@ -137,6 +144,21 @@ export default function SplitModule() {
     setActiveEditors((prev) => ({ ...prev, [id]: "main" }));
     setMasterStickyMode(false);
   }, [masterStickyMode, masterNoteColor, masterNoteShape]);
+
+  const handleDeleteStickyNote = useCallback((id: string) => {
+    setStickyNotes((prev) => prev.filter((note) => note.id !== id));
+    setViewerMessages((prev) => prev.filter((msg) => msg.noteId !== id));
+    setActiveEditors((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setRevealedNotes((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }, []);
 
   const handleOpenStickyEditor = useCallback((noteId: string | null, viewerSide: string) => {
     setActiveEditors((prev) => {
@@ -241,6 +263,8 @@ export default function SplitModule() {
           editingStickyNoteId={Object.keys(activeEditors).find(id => activeEditors[id] === "main") || null}
           onUpdateStickyNote={handleUpdateStickyNote}
           onOpenStickyEditor={(id) => handleOpenStickyEditor(id, "main")}
+          onDeleteStickyNote={handleDeleteStickyNote}
+          viewerSide="main"
           stickyMode={masterStickyMode}
           onStickyMapClick={handleMasterMapClick}
           activeCriteria={aviralCriteria}
@@ -286,12 +310,14 @@ export default function SplitModule() {
           activeEditors={activeEditors}
           onUpdateStickyNote={handleUpdateStickyNote}
           onOpenStickyEditor={(id) => handleOpenStickyEditor(id, viewer.side)}
+          onDeleteStickyNote={handleDeleteStickyNote}
           messages={viewerMessages}
           onSendMessage={(text) => handleSendMessage(viewer.side, viewer.title, text)}
           activeCriteria={aviralCriteria}
           clipApiBase={backendBase}
           revealedNotes={revealedNotes}
           onRevealNote={(noteId) => handleRevealNote(noteId, viewer.side)}
+          onHideNote={(noteId) => handleHideNote(noteId, viewer.side)}
         />
       ))}
 

@@ -60,6 +60,8 @@ export type SplitViewerWindowProps = {
   /** noteId → list of viewer sides that have opted-in to see that note */
   revealedNotes?: Record<string, string[]>;
   onRevealNote?: (noteId: string) => void;
+  onHideNote?: (noteId: string) => void;
+  onDeleteStickyNote?: (id: string) => void;
 };
 
 const BEZEL_ACCENT = "#5f5099 ";
@@ -207,6 +209,8 @@ export default function SplitViewerWindow({
   clipApiBase,
   revealedNotes = {},
   onRevealNote,
+  onHideNote,
+  onDeleteStickyNote,
 }: SplitViewerWindowProps) {
   const cfg = sideConfig[side];
   // Extract the rotation angle from the CSS string e.g. "rotate(-90deg)" → -90
@@ -658,6 +662,7 @@ export default function SplitViewerWindow({
                 editingStickyNoteId={editingStickyNoteId}
                 onUpdateStickyNote={onUpdateStickyNote}
                 onOpenStickyEditor={onOpenStickyEditor}
+                onDeleteStickyNote={onDeleteStickyNote}
                 activeEditors={activeEditors || {}}
                 viewerSide={side}
                 activeCriteria={activeCriteria}
@@ -782,17 +787,31 @@ export default function SplitViewerWindow({
                         <span style={{ fontSize: 8, fontWeight: 700, color: BEZEL_ACCENT }}>{m.fromTitle}: </span>
                         {m.text}
                         {isNoteNotif && (
-                          <button
-                            type="button"
-                            onClick={() => !alreadyRevealed && onRevealNote?.(m.noteId!)}
-                            style={{
-                              marginLeft: 4, fontSize: 7, fontWeight: 700, cursor: alreadyRevealed ? "default" : "pointer",
-                              background: alreadyRevealed ? "#d1fae5" : "#2563eb", color: alreadyRevealed ? "#065f46" : "#fff",
-                              border: "none", borderRadius: 3, padding: "1px 5px", flexShrink: 0,
-                            }}
-                          >
-                            {alreadyRevealed ? "Visible ✓" : "Reveal"}
-                          </button>
+                          alreadyRevealed ? (
+                            <button
+                              type="button"
+                              onClick={() => onHideNote?.(m.noteId!)}
+                              style={{
+                                marginLeft: 4, fontSize: 7, fontWeight: 700, cursor: "pointer",
+                                background: "#fee2e2", color: "#991b1b",
+                                border: "1px solid #fca5a5", borderRadius: 3, padding: "1px 5px", flexShrink: 0,
+                              }}
+                            >
+                              Hide
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => onRevealNote?.(m.noteId!)}
+                              style={{
+                                marginLeft: 4, fontSize: 7, fontWeight: 700, cursor: "pointer",
+                                background: "#2563eb", color: "#fff",
+                                border: "none", borderRadius: 3, padding: "1px 5px", flexShrink: 0,
+                              }}
+                            >
+                              Reveal
+                            </button>
+                          )
                         )}
                       </div>
                     );

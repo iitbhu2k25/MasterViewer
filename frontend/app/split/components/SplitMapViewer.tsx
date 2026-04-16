@@ -87,6 +87,7 @@ function StickyNotesLayer({
   viewerSide,
   onUpdateStickyNote,
   onOpenStickyEditor,
+  onDeleteStickyNote,
 }: {
   stickyNotes: StickyNote[];
   editingStickyNoteId?: string | null;
@@ -94,6 +95,7 @@ function StickyNotesLayer({
   viewerSide?: string;
   onUpdateStickyNote?: (id: string, text: string) => void;
   onOpenStickyEditor?: (id: string | null) => void;
+  onDeleteStickyNote?: (id: string) => void;
 }) {
   const map = useMap();
   const [version, setVersion] = useState(0);
@@ -138,6 +140,26 @@ function StickyNotesLayer({
                 if (!isLocked) onOpenStickyEditor?.(note.id);
               }}
             >
+              {/* Delete button — owner only */}
+              {!isLocked && onDeleteStickyNote && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onDeleteStickyNote(note.id); }}
+                  style={{
+                    position: "absolute", top: -14, left: -6, zIndex: 70,
+                    background: "#ef4444", color: "#fff", border: "1px solid #dc2626",
+                    borderRadius: "50%", width: 18, height: 18, fontSize: 10, fontWeight: 900,
+                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                    boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                  }}
+                  title="Delete"
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                  </svg>
+                </button>
+              )}
               <div style={{ position: "relative", display: "inline-block" }}>
                 {isEditing && (
                   <button
@@ -219,7 +241,7 @@ function StickyNotesLayer({
                 transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
               }}
             >
-              {isEditing ? (
+               {isEditing ? (
                 <button
                   type="button"
                   onClick={(event) => {
@@ -247,6 +269,29 @@ function StickyNotesLayer({
                   ✕
                 </button>
               ) : null}
+
+              {/* Delete button — owner only */}
+              {!isLocked && onDeleteStickyNote && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onDeleteStickyNote(note.id); }}
+                  style={{
+                    position: "absolute", top: (note.shape === "triangle" ? 18 : -8), left: (note.shape === "triangle" ? 18 : -8), zIndex: 70,
+                    background: "#ef4444", color: "#fff", border: "1px solid #dc2626",
+                    borderRadius: "50%", width: 22, height: 22, fontSize: 10, fontWeight: 900,
+                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                    boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                  }}
+                  title="Delete Marking"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    <line x1="10" y1="11" x2="10" y2="17"></line>
+                    <line x1="14" y1="11" x2="14" y2="17"></line>
+                  </svg>
+                </button>
+              )}
               <div
                 style={{
                   minHeight: 70,
@@ -315,10 +360,10 @@ function MapDragRotationFix({ angleDeg }: { angleDeg: number }) {
       e.preventDefault();
       if (!dx && !dy) return;
 
-      // Derived from CSS-rotation geometry: panBy args that make tiles visually follow the finger.
-      // panBy_x = -dx*cos(θ) + dy*sin(θ)
-      // panBy_y = -dx*sin(θ) - dy*cos(θ)
-      map.panBy([-dx * cos + dy * sin, -dx * sin - dy * cos], { animate: false });
+      // Correct CSS-rotation pan formula (derived from visual ↔ internal coordinate transform):
+      // panBy_x = -dx·cos(θ) - dy·sin(θ)
+      // panBy_y =  dx·sin(θ) - dy·cos(θ)
+      map.panBy([-dx * cos - dy * sin, dx * sin - dy * cos], { animate: false });
     };
 
     const onTouchEnd = (e: TouchEvent) => {
@@ -388,6 +433,7 @@ type Props = {
   viewerSide?: string;
   onUpdateStickyNote?: (id: string, text: string) => void;
   onOpenStickyEditor?: (id: string | null) => void;
+  onDeleteStickyNote?: (id: string) => void;
   activeCriteria?: string[];
   clipApiBase: string;
   /** CSS rotation angle applied to the viewer container (0, 90, 180, -90). Used to fix touch-pan direction. */
@@ -413,6 +459,7 @@ export default function SplitMapViewer({
   viewerSide,
   onUpdateStickyNote,
   onOpenStickyEditor,
+  onDeleteStickyNote,
   activeCriteria = [],
   clipApiBase,
   mapRotation = 0,
@@ -542,6 +589,7 @@ export default function SplitMapViewer({
         viewerSide={viewerSide}
         onUpdateStickyNote={onUpdateStickyNote}
         onOpenStickyEditor={onOpenStickyEditor}
+        onDeleteStickyNote={onDeleteStickyNote}
       />
     </MapContainer>
   );

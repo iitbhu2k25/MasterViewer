@@ -251,11 +251,15 @@ function StickyNotesOverlay({
   editingStickyNoteId,
   onUpdateStickyNote,
   onOpenStickyEditor,
+  onDeleteStickyNote,
+  viewerSide,
 }: {
   stickyNotes: StickyNote[];
   editingStickyNoteId?: string | null;
   onUpdateStickyNote?: (id: string, text: string) => void;
   onOpenStickyEditor?: (id: string | null) => void;
+  onDeleteStickyNote?: (id: string) => void;
+  viewerSide?: string;
 }) {
   const map = useMap();
   const [version, setVersion] = useState(0);
@@ -274,6 +278,8 @@ function StickyNotesOverlay({
       {stickyNotes.map((note) => {
         const point = map.latLngToContainerPoint([note.lat, note.lng]);
         const isEditing = editingStickyNoteId === note.id;
+        const isOwner = note.ownerSide === (viewerSide || "main");
+
         /* ── TEXT label ── */
         if (note.shape === "text") {
           return (
@@ -288,6 +294,25 @@ function StickyNotesOverlay({
               }}
               onClick={(e) => { e.stopPropagation(); onOpenStickyEditor?.(note.id); }}
             >
+              {isOwner && onDeleteStickyNote && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onDeleteStickyNote(note.id); }}
+                  style={{
+                    position: "absolute", top: -14, left: -6, zIndex: 70,
+                    background: "#ef4444", color: "#fff", border: "1px solid #dc2626",
+                    borderRadius: "50%", width: 18, height: 18, fontSize: 10, fontWeight: 900,
+                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                    boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                  }}
+                  title="Delete"
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                  </svg>
+                </button>
+              )}
               <div style={{ position: "relative", display: "inline-block" }}>
                 {isEditing && (
                   <button
@@ -340,6 +365,27 @@ function StickyNotesOverlay({
             }}
             onClick={(e) => { e.stopPropagation(); onOpenStickyEditor?.(note.id); }}
           >
+            {isOwner && onDeleteStickyNote && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onDeleteStickyNote(note.id); }}
+                style={{
+                  position: "absolute", top: (note.shape === "triangle" ? 18 : -8), left: (note.shape === "triangle" ? 18 : -8), zIndex: 70,
+                  background: "#ef4444", color: "#fff", border: "1px solid #dc2626",
+                  borderRadius: "50%", width: 22, height: 22, fontSize: 10, fontWeight: 900,
+                  cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                  boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                }}
+                title="Delete Marking"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                  <line x1="10" y1="11" x2="10" y2="17"></line>
+                  <line x1="14" y1="11" x2="14" y2="17"></line>
+                </svg>
+              </button>
+            )}
             <div
               style={{
                 minWidth: isEditing ? 120 : 94,
@@ -421,6 +467,8 @@ type Props = {
   editingStickyNoteId?: string | null;
   onUpdateStickyNote?: (id: string, text: string) => void;
   onOpenStickyEditor?: (id: string | null) => void;
+  onDeleteStickyNote?: (id: string) => void;
+  viewerSide?: string;
   stickyMode?: boolean;
   onStickyMapClick?: (lat: number, lng: number) => void;
   activeCriteria?: string[];
@@ -447,6 +495,8 @@ export default function AdminMap({
   editingStickyNoteId = null,
   onUpdateStickyNote,
   onOpenStickyEditor,
+  onDeleteStickyNote,
+  viewerSide = "main",
   stickyMode = false,
   onStickyMapClick,
   activeCriteria = [],
@@ -727,6 +777,8 @@ export default function AdminMap({
           editingStickyNoteId={editingStickyNoteId}
           onUpdateStickyNote={onUpdateStickyNote}
           onOpenStickyEditor={onOpenStickyEditor}
+          onDeleteStickyNote={onDeleteStickyNote}
+          viewerSide={viewerSide}
         />
         <StickyMapClickHandler enabled={stickyMode} onMapClick={onStickyMapClick} />
         <InvalidateMapSize />

@@ -98,42 +98,103 @@ export default function SplitMasterPanel({
     }
   }, [stickyMode]);
 
-  /* X-axis only offset — identical axis logic to the bottom viewer */
-  const [offsetX, setOffsetX]   = useState(0);
-  const dragging    = useRef(false);
-  const dragStartX  = useRef(0);
-  const offsetStartX = useRef(0);
+  /* X-axis only offset — touch-anywhere drag with tap-click preserved */
+  const [offsetX, setOffsetX] = useState(0);
+  const offsetXRef = useRef(0);
+  const panelRef = useRef<HTMLDivElement>(null);
 
-  const onDragStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+  // Mouse drag
+  const mouseDragging = useRef(false);
+  const mouseDragStartX = useRef(0);
+  const mouseOffsetStart = useRef(0);
+
+  const onMouseDragStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "touch") return; // handled by touch listeners
     const target = e.target as HTMLElement;
     if (target.closest("button") || target.closest("input")) return;
-    dragging.current    = true;
-    dragStartX.current  = e.clientX;
-    offsetStartX.current = offsetX;
+    mouseDragging.current = true;
+    mouseDragStartX.current = e.clientX;
+    mouseOffsetStart.current = offsetXRef.current;
     target.setPointerCapture(e.pointerId);
-  }, [offsetX]);
-
-  const onDragMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragging.current) return;
-    const dx = e.clientX - dragStartX.current;
-    setOffsetX(offsetStartX.current + dx);
   }, []);
 
-  const onDragEnd = useCallback(() => { dragging.current = false; }, []);
+  const onMouseDragMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!mouseDragging.current || e.pointerType === "touch") return;
+    setOffsetX(mouseOffsetStart.current + (e.clientX - mouseDragStartX.current));
+  }, []);
+
+  const onMouseDragEnd = useCallback(() => { mouseDragging.current = false; }, []);
+
+  // Touch drag
+  const touchDragging = useRef(false);
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+  const touchOffsetStart = useRef(0);
+  const touchMoved = useRef(false);
+
+  // Keep ref in sync with state so touch handlers always see latest value
+  useEffect(() => { offsetXRef.current = offsetX; }, [offsetX]);
+
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!el) return;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      touchDragging.current = true;
+      touchMoved.current = false;
+      touchStartX.current = e.touches[0].clientX;
+      touchStartY.current = e.touches[0].clientY;
+      touchOffsetStart.current = offsetXRef.current;
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!touchDragging.current || e.touches.length !== 1) return;
+      const dx = e.touches[0].clientX - touchStartX.current;
+      const dy = e.touches[0].clientY - touchStartY.current;
+      // Only start dragging when clearly horizontal (dx > threshold)
+      if (!touchMoved.current) {
+        if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+        // If mostly vertical, let the event pass through
+        if (Math.abs(dy) > Math.abs(dx)) { touchDragging.current = false; return; }
+        touchMoved.current = true;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      setOffsetX(touchOffsetStart.current + dx);
+    };
+
+    const onTouchEnd = () => {
+      touchDragging.current = false;
+    };
+
+    el.addEventListener("touchstart", onTouchStart, { passive: true, capture: false });
+    el.addEventListener("touchmove", onTouchMove, { passive: false, capture: false });
+    el.addEventListener("touchend", onTouchEnd, { passive: true, capture: false });
+    el.addEventListener("touchcancel", onTouchEnd, { passive: true, capture: false });
+
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart, false);
+      el.removeEventListener("touchmove", onTouchMove, false);
+      el.removeEventListener("touchend", onTouchEnd, false);
+      el.removeEventListener("touchcancel", onTouchEnd, false);
+    };
+  }, []);
 
   return (
     <div
+      ref={panelRef}
       className="split-master-panel pointer-events-auto absolute bottom-4 left-1/2 z-[940]"
       style={{
         width: collapsed ? "auto" : "min(500px, 66vw)",
         transform: `translateX(calc(-50% + ${offsetX}px))`,
         transition: "width 0.4s ease",
-        cursor: "ew-resize",
+        cursor: mouseDragging.current ? "grabbing" : "grab",
       }}
-      onPointerDown={onDragStart}
-      onPointerMove={onDragMove}
-      onPointerUp={onDragEnd}
-      onPointerCancel={onDragEnd}
+      onPointerDown={onMouseDragStart}
+      onPointerMove={onMouseDragMove}
+      onPointerUp={onMouseDragEnd}
+      onPointerCancel={onMouseDragEnd}
     >
       {/* 5-dot drag indicator */}
       <div className="flex justify-center mb-1 pointer-events-none select-none">
