@@ -6,6 +6,7 @@ import "leaflet/dist/leaflet.css";
 import AdminLocation from "./components/AdminLocation";
 import AdminMap from "./components/AdminMap";
 import { useLocationSelection } from "./hooks/useLocationSelection";
+import SplitActivityPanel from "./components/SplitActivityPanel";
 
 type HolisticModuleProps = {
   hideLeftPanel?: boolean;
@@ -160,12 +161,15 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 md:px-4">
           <h1 className="text-3xl font-extrabold tracking-tight text-blue-800 md:text-[42px]">Holistic River Management</h1>
-          <Link
-            href="/homepage"
-            className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800"
-          >
-            Dashboard
-          </Link>
+          <div className="flex items-center gap-3">
+            <SplitActivityPanel />
+            <Link
+              href="/homepage"
+              className="rounded-lg bg-slate-300 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+            >
+              Home
+            </Link>
+          </div>
         </div>
 
         <div className="relative h-[calc(100vh-96px)] min-h-[620px] overflow-hidden p-2">

@@ -115,7 +115,7 @@ interface AllStatusCounts {
 
 const EnhancedRiverDashboard = () => {
   // ⚙️ CHANGE THIS TO MATCH YOUR DJANGO SERVER PORT
-  const API_BASE_URL = '/assi';
+  const API_BASE_URL = 'http://localhost:9000/assi';
 
   // State management
   const [rivers, setRivers] = useState<River[]>([]);

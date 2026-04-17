@@ -264,6 +264,14 @@ function StickyNotesOverlay({
   const map = useMap();
   const [version, setVersion] = useState(0);
 
+  const sideToLabel: Record<string, string> = {
+    top: "Screen 1",
+    topSecondary: "Screen 2",
+    left: "Screen 3",
+    right: "Screen 4",
+    bottom: "Main Screen",
+  };
+
   useEffect(() => {
     const update = () => setVersion((v) => v + 1);
     map.on("move zoom resize", update);
@@ -279,6 +287,11 @@ function StickyNotesOverlay({
         const point = map.latLngToContainerPoint([note.lat, note.lng]);
         const isEditing = editingStickyNoteId === note.id;
         const isOwner = note.ownerSide === (viewerSide || "main");
+
+        const screenLabel =
+          viewerSide === "main" && note.ownerSide && note.ownerSide !== "main"
+            ? (sideToLabel[note.ownerSide] ?? note.ownerSide)
+            : null;
 
         /* ── TEXT label ── */
         if (note.shape === "text") {
@@ -325,6 +338,29 @@ function StickyNotesOverlay({
                       cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
                     }}
                   >✕</button>
+                )}
+                {screenLabel && (
+                  <span style={{
+                    position: "absolute",
+                    bottom: "100%",
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    marginBottom: 4,
+                    fontSize: 8,
+                    fontWeight: 800,
+                    color: "#fff",
+                    background: "rgba(15,23,42,0.85)",
+                    borderRadius: 3,
+                    padding: "1px 6px",
+                    textAlign: "center",
+                    letterSpacing: 0.4,
+                    whiteSpace: "nowrap",
+                    pointerEvents: "none",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                    textShadow: "none",
+                  }}>
+                    {screenLabel}
+                  </span>
                 )}
                 <span
                   style={{
@@ -423,23 +459,37 @@ function StickyNotesOverlay({
                   }}
                 >✕</button>
               )}
-              <div
-                style={{
-                  minHeight: 70,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  textAlign: "center",
-                  fontSize: 18,
+                {screenLabel && (
+                  <div style={{
+                    position: "absolute",
+                    top: -10,
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    fontSize: 8,
+                    fontWeight: 800,
+                    color: "#fff",
+                    background: "rgba(15,23,42,0.90)",
+                    borderRadius: 3,
+                    padding: "1px 6px",
+                    letterSpacing: 0.4,
+                    whiteSpace: "nowrap",
+                    pointerEvents: "none",
+                    boxShadow: "0 2px 4px rgba(0,0,0,0.4)",
+                    zIndex: 10,
+                  }}>{screenLabel}</div>
+                )}
+                <div style={{
+                  fontSize: isEditing ? 16 : 14,
                   lineHeight: 1.2,
                   fontWeight: 500,
+                  textAlign: "center",
                   wordBreak: "break-word",
-                }}
-              >
-                {note.text || (isEditing ? "Start typing..." : "Tap to write")}
+                  color: "#1e293b",
+                }}>
+                  {note.text || (isEditing ? "Start typing..." : "Tap to write")}
+                </div>
               </div>
             </div>
-          </div>
         );
       })}
     </div>

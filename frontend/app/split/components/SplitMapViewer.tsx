@@ -201,6 +201,11 @@ function StickyNotesLayer({
         }
 
         // ── Sticky / Shape ────────────────────────────────────────────────
+        const shapeClip = note.shape === "rhombus"
+          ? "polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)"
+          : note.shape === "triangle" ? "polygon(50% 0%, 0% 100%, 100% 100%)" : "none";
+        const shapeSize = isEditing ? 120 : 94;
+
         return (
           <div
             key={note.id}
@@ -210,73 +215,71 @@ function StickyNotesLayer({
               top: point.y,
               transform: "translate(-50%, -50%)",
               pointerEvents: "auto",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
             }}
             onClick={(event) => {
               event.stopPropagation();
               if (!isLocked) onOpenStickyEditor?.(note.id);
             }}
           >
-            <div
-              style={{
-                minWidth: isEditing ? 120 : 94,
-                minHeight: isEditing ? 120 : 94,
-                maxWidth: 150,
-                padding: isEditing
-                  ? (note.shape === "triangle" ? "32px 12px 10px" : "24px 12px 12px")
-                  : (note.shape === "triangle" ? "24px 10px 6px" : 10),
+            {/* clipped background shape — purely visual, no children clipped */}
+            <div style={{ position: "relative", width: shapeSize, height: shapeSize, maxWidth: 150 }}>
+              {/* background fill with clipPath */}
+              <div style={{
+                position: "absolute", inset: 0,
                 background: hexToRgba(note.color, 0.5),
-                color: "#1e293b",
+                clipPath: shapeClip,
                 borderRadius: note.shape === "oval" ? "50%" : (note.shape === "rect" || note.shape === "rhombus" || note.shape === "triangle" ? 0 : 6),
-                border: isEditing ? "3px solid #3b82f6" : "1px solid rgba(15,23,42,0.12)",
                 boxShadow: isEditing
-                  ? "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1), 0 0 0 4px rgba(59, 130, 246, 0.2)"
-                  : "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",
-                position: "relative",
-                clipPath: note.shape === "rhombus"
-                  ? "polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)"
-                  : (note.shape === "triangle" ? "polygon(50% 0%, 0% 100%, 100% 100%)" : "none"),
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
+                  ? "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 0 0 4px rgba(59,130,246,0.2)"
+                  : "0 10px 15px -3px rgb(0 0 0 / 0.1)",
+                border: isEditing ? "3px solid #3b82f6" : "1px solid rgba(15,23,42,0.12)",
                 transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
-              }}
-            >
-               {isEditing ? (
+              }} />
+
+              {/* content layer — NOT clipped */}
+              <div style={{
+                position: "absolute", inset: 0,
+                display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "center",
+                padding: 8,
+              }}>
+                <div style={{
+                  fontSize: isEditing ? 16 : 14,
+                  lineHeight: 1.2, fontWeight: 500,
+                  textAlign: "center", wordBreak: "break-word",
+                  color: "#1e293b",
+                }}>
+                  {note.text || (isEditing ? "Start typing..." : "Tap to write")}
+                </div>
+              </div>
+
+              {/* close button */}
+              {isEditing && (
                 <button
                   type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onOpenStickyEditor?.(null);
-                  }}
+                  onClick={(event) => { event.stopPropagation(); onOpenStickyEditor?.(null); }}
                   style={{
-                    position: "absolute",
-                    top: 2,
-                    right: 2,
-                    background: "rgba(15,23,42,.85)",
-                    border: "none",
-                    color: "white",
-                    borderRadius: "50%",
-                    width: 20,
-                    height: 20,
-                    fontSize: 10,
-                    fontWeight: "bold",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
+                    position: "absolute", top: 2, right: 2, zIndex: 10,
+                    background: "rgba(15,23,42,.85)", border: "none", color: "white",
+                    borderRadius: "50%", width: 20, height: 20, fontSize: 10, fontWeight: "bold",
+                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
                   }}
-                >
-                  ✕
-                </button>
-              ) : null}
+                >✕</button>
+              )}
 
-              {/* Delete button — owner only */}
+              {/* delete button — owner only */}
               {!isLocked && onDeleteStickyNote && (
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); onDeleteStickyNote(note.id); }}
                   style={{
-                    position: "absolute", top: (note.shape === "triangle" ? 18 : -8), left: (note.shape === "triangle" ? 18 : -8), zIndex: 70,
+                    position: "absolute",
+                    top: note.shape === "triangle" ? 18 : -8,
+                    left: note.shape === "triangle" ? 18 : -8,
+                    zIndex: 70,
                     background: "#ef4444", color: "#fff", border: "1px solid #dc2626",
                     borderRadius: "50%", width: 22, height: 22, fontSize: 10, fontWeight: 900,
                     cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
@@ -292,21 +295,6 @@ function StickyNotesLayer({
                   </svg>
                 </button>
               )}
-              <div
-                style={{
-                  minHeight: 70,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  textAlign: "center",
-                  fontSize: 18,
-                  lineHeight: 1.2,
-                  fontWeight: 500,
-                  wordBreak: "break-word",
-                }}
-              >
-                {note.text || (isEditing ? "Start typing..." : "Tap to write")}
-              </div>
             </div>
           </div>
         );
