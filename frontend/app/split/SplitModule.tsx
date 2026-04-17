@@ -42,6 +42,8 @@ export type SplitSession = {
   basemap: string;
   /** full sticky note state snapshot — used for "Go to Session" restore */
   stickyNotes: StickyNote[];
+  /** all messages sent/received during this session */
+  messages: ViewerMessage[];
 };
 
 const SESSIONS_KEY = "split_sessions";
@@ -191,6 +193,7 @@ export default function SplitModule() {
     activeCriteria: [],
     basemap: "terrain",
     stickyNotes: [],
+    messages: [],
   });
 
   // Track whether initial mount + restore is done before syncing state to session
@@ -233,6 +236,13 @@ export default function SplitModule() {
     sessionRef.current = { ...sessionRef.current, stickyNotes, lastActivityAt: Date.now() };
     persistIfActive(sessionRef.current);
   }, [stickyNotes]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep messages snapshot in session
+  useEffect(() => {
+    if (!mountedRef.current) return;
+    sessionRef.current = { ...sessionRef.current, messages: viewerMessages, lastActivityAt: Date.now() };
+    persistIfActive(sessionRef.current);
+  }, [viewerMessages]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   function addMark(mark: SplitMark) {
     const s = sessionRef.current;
@@ -302,6 +312,7 @@ export default function SplitModule() {
         if (s.activeZones?.length) setSelectedZones(s.activeZones);
         if (s.activeCriteria?.length) setAviralCriteria(s.activeCriteria);
         if (s.basemap) setBasemap(s.basemap as BasemapType);
+        if (s.messages?.length) setViewerMessages(s.messages);
         // Show screen viewers if any viewer-side marks exist
         const hasViewerMarks = s.marks?.some(m => m.viewerSide !== "main");
         if (hasViewerMarks) setShowViewers(true);
