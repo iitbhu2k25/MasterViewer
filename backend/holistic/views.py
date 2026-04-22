@@ -696,6 +696,13 @@ def analysis_zone_raster_clip(request):
             "dss_raster:slope",
             "dss_raster:slope_Slope_aviral",
         ]
+    elif data_type in {"nirmal_gwq", "groundwater_quality"}:
+        coverage_name = None
+        coverage_candidates = [
+            "dss_raster:nirmal_gwq",
+            "dss_raster:Nirmal_gwq",
+            "dss_raster:nirmal_GWQ",
+        ]
     else:
         return JsonResponse({"detail": f"Unsupported data_type: {data_type}"}, status=400)
 
@@ -1113,3 +1120,418 @@ def analysis_dem_slope(request):
         return JsonResponse({"detail": f"GeoServer fetch failed: {exc}"}, status=502)
     except Exception as exc:
         return JsonResponse({"detail": f"DEM/Slope analysis failed: {exc}"}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def analysis_flow_direction_clip(request):
+    """Return clipped GeoTIFF for flow_direction_1 (direction) or flow_direction_2 (accumulation)."""
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON body"}, status=400)
+
+    data_type = str(payload.get("data_type", "direction")).strip().lower()
+    coverage_map = {
+        "direction": "dss_raster:flow_direction_1",
+        "accumulation": "dss_raster:flow_direction_2",
+    }
+    if data_type not in coverage_map:
+        return JsonResponse({"detail": f"Unsupported data_type: {data_type}. Use 'direction' or 'accumulation'"}, status=400)
+
+    selected_zones = payload.get("selected_zones", [])
+    if isinstance(selected_zones, str):
+        try:
+            selected_zones = json.loads(selected_zones)
+        except json.JSONDecodeError:
+            selected_zones = [selected_zones]
+
+    if not isinstance(selected_zones, list) or not selected_zones:
+        return JsonResponse({"detail": "selected_zones is required"}, status=400)
+
+    try:
+        area_geojson = _fetch_area_geojson()
+        features = area_geojson.get("features", []) or []
+        zone_field = _guess_zone_field(features)
+        if not zone_field:
+            return JsonResponse({"detail": "Unable to detect zone field"}, status=500)
+
+        selected_set = {_normalize_zone_value(z) for z in selected_zones if str(z).strip()}
+        zone_geometries: dict[str, list[dict]] = {}
+        for feature in features:
+            props = feature.get("properties", {}) or {}
+            zone_name = _normalize_zone_value(str(props.get(zone_field, "")).strip())
+            if zone_name in selected_set and feature.get("geometry"):
+                zone_geometries.setdefault(zone_name, []).append(feature["geometry"])
+
+        if not zone_geometries:
+            return JsonResponse({"detail": "Selected zones not found"}, status=404)
+
+        coverage_name = coverage_map[data_type]
+        clipped_tiff = _clip_coverage_tiff_to_geometries(coverage_name, zone_geometries)
+        response = HttpResponse(clipped_tiff, content_type="image/tiff")
+        response["Content-Disposition"] = f'inline; filename="flow_{data_type}_clipped.tif"'
+        response["X-Coverage"] = coverage_name
+        return response
+    except requests.RequestException as exc:
+        return JsonResponse({"detail": f"GeoServer fetch failed: {exc}"}, status=502)
+    except Exception as exc:
+        return JsonResponse({"detail": f"Flow direction clip failed: {exc}"}, status=500)
+
+
+def _clip_local_tif_to_zones(local_path: Path, zone_geometries: dict) -> bytes:
+    """Clip a local GeoTIFF to the union of zone geometries and return bytes."""
+    with rasterio.open(local_path) as src:
+        all_geoms = [geom for geoms in zone_geometries.values() for geom in geoms]
+        if not all_geoms:
+            raise ValueError("No zone geometries to clip")
+        union_geom_wgs84 = unary_union([shape(g) for g in all_geoms])
+        union_geom_src = _reproject_geometries([mapping(union_geom_wgs84)], src.crs)[0]
+        nodata_value = src.nodata if src.nodata is not None else -9999.0
+        clipped, clipped_transform = mask(src, [union_geom_src], crop=True, filled=True, nodata=nodata_value)
+        profile = src.profile.copy()
+        profile.update({
+            "height": clipped.shape[1],
+            "width": clipped.shape[2],
+            "transform": clipped_transform,
+            "nodata": nodata_value,
+            "compress": "lzw",
+        })
+        with MemoryFile() as out_mem:
+            with out_mem.open(**profile) as out_ds:
+                out_ds.write(clipped)
+            return out_mem.read()
+
+
+def _nirmal_local_clip_view(request, filename: str, label: str):
+    """Shared handler for all nirmal local-file clip endpoints."""
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON body"}, status=400)
+
+    selected_zones = payload.get("selected_zones", [])
+    if isinstance(selected_zones, str):
+        try:
+            parsed = json.loads(selected_zones)
+            if isinstance(parsed, list):
+                selected_zones = parsed
+        except json.JSONDecodeError:
+            selected_zones = [selected_zones]
+
+    if not isinstance(selected_zones, list) or not selected_zones:
+        return JsonResponse({"detail": "selected_zones is required"}, status=400)
+
+    try:
+        resolved, err_resp = _resolve_zone_geometries(selected_zones)
+        if err_resp:
+            return err_resp
+        if not resolved:
+            return JsonResponse({"detail": "Selected zones not found"}, status=404)
+
+        zone_geometries = resolved["zone_geometries"]
+        local_path = Path(settings.MEDIA_ROOT) / "files" / "nirmal" / filename
+        if not local_path.exists():
+            return JsonResponse({"detail": f"{label} raster not found at {local_path}"}, status=404)
+
+        tiff_bytes = _clip_local_tif_to_zones(local_path, zone_geometries)
+        response = HttpResponse(tiff_bytes, content_type="image/tiff")
+        response["Content-Disposition"] = f'inline; filename="{label}_clipped.tif"'
+        response["X-Coverage"] = label
+        response["X-Selected-Zones"] = ",".join(sorted(zone_geometries.keys()))
+        return response
+
+    except Exception as exc:
+        return JsonResponse({"detail": f"{label} clip failed: {exc}"}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def analysis_nirmal_gwq_clip(request):
+    return _nirmal_local_clip_view(request, "gwq.tif", "nirmal_gwq")
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def analysis_nirmal_rwq_clip(request):
+    """Clip river water quality raster for a given season (premonsoon/monsoon/postmonsoon)."""
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON body"}, status=400)
+
+    season = payload.get("season", "monsoon").strip().lower()
+    season_map = {
+        "premonsoon": "rwq_premonsoon.tif",
+        "monsoon": "rwq_monsoon.tif",
+        "postmonsoon": "rwq_postmonsoon.tif",
+    }
+    if season not in season_map:
+        return JsonResponse({"detail": f"Invalid season '{season}'. Use premonsoon, monsoon, or postmonsoon."}, status=400)
+
+    request._body = json.dumps({"selected_zones": payload.get("selected_zones", [])}).encode("utf-8")
+    return _nirmal_local_clip_view(request, season_map[season], f"nirmal_rwq_{season}")
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def analysis_nirmal_rwq_stats(request):
+    """Return per-zone RWQ zonal stats (min/mean/max) for all three seasons."""
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON body"}, status=400)
+
+    selected_zones = payload.get("selected_zones", [])
+    if isinstance(selected_zones, str):
+        try:
+            parsed = json.loads(selected_zones)
+            if isinstance(parsed, list):
+                selected_zones = parsed
+        except json.JSONDecodeError:
+            selected_zones = [selected_zones]
+
+    if not isinstance(selected_zones, list) or not selected_zones:
+        return JsonResponse({"detail": "selected_zones is required"}, status=400)
+
+    try:
+        resolved, err_resp = _resolve_zone_geometries(selected_zones)
+        if err_resp:
+            return err_resp
+        if not resolved:
+            return JsonResponse({"detail": "Selected zones not found"}, status=404)
+
+        zone_geometries = resolved["zone_geometries"]
+        media_root = Path(settings.MEDIA_ROOT)
+        season_files = {
+            "premonsoon": media_root / "files" / "nirmal" / "rwq_premonsoon.tif",
+            "monsoon": media_root / "files" / "nirmal" / "rwq_monsoon.tif",
+            "postmonsoon": media_root / "files" / "nirmal" / "rwq_postmonsoon.tif",
+        }
+
+        result = {}
+        for season, path in season_files.items():
+            if not path.exists():
+                result[season] = {"error": f"File not found: {path.name}"}
+                continue
+            with rasterio.open(path) as src:
+                stats = _zonal_stats_for_raster_dataset(src, zone_geometries)
+            result[season] = {
+                zone: {
+                    "mean": round(v["mean"], 3) if v["mean"] is not None else None,
+                    "min": round(v["min"], 3) if v["min"] is not None else None,
+                    "max": round(v["max"], 3) if v["max"] is not None else None,
+                }
+                for zone, v in stats.items()
+            }
+
+        return JsonResponse({"rwq": result, "zones": sorted(zone_geometries.keys())})
+
+    except Exception as exc:
+        return JsonResponse({"detail": f"RWQ stats failed: {exc}"}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def analysis_nirmal_stp(request):
+    """Return STP points (from dss_vector:nirmal_stp_details) within selected zone polygons."""
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON body"}, status=400)
+
+    selected_zones = payload.get("selected_zones", [])
+    if isinstance(selected_zones, str):
+        try:
+            parsed = json.loads(selected_zones)
+            if isinstance(parsed, list):
+                selected_zones = parsed
+        except json.JSONDecodeError:
+            selected_zones = [selected_zones]
+
+    if not isinstance(selected_zones, list) or not selected_zones:
+        return JsonResponse({"detail": "selected_zones is required"}, status=400)
+
+    try:
+        resolved, err_resp = _resolve_zone_geometries(selected_zones)
+        if err_resp:
+            return err_resp
+        if not resolved:
+            return JsonResponse({"detail": "Selected zones not found"}, status=404)
+
+        zone_geometries = resolved["zone_geometries"]
+        all_geoms = [shape(g) for geoms in zone_geometries.values() for g in geoms]
+        zone_union = unary_union(all_geoms)
+        zone_lookup = {zone: unary_union([shape(g) for g in geoms]) for zone, geoms in zone_geometries.items()}
+
+        stp_geojson = _fetch_vector_layer_geojson("nirmal_stp_details")
+        stp_features = stp_geojson.get("features", [])
+
+        result = []
+        for feature in stp_features:
+            geom = feature.get("geometry")
+            if not geom:
+                continue
+            try:
+                pt = shape(geom)
+            except Exception:
+                continue
+            if not zone_union.contains(pt):
+                continue
+
+            zone_name = next((z for z, zg in zone_lookup.items() if zg.contains(pt)), None)
+            props = feature.get("properties", {}) or {}
+
+            def _f(v):
+                return round(float(v), 2) if v is not None else None
+
+            result.append({
+                "zone": zone_name,
+                "name": props.get("name") or "Unknown",
+                "district": props.get("district"),
+                "city": props.get("city"),
+                "state": props.get("state"),
+                "status": props.get("status"),
+                "capacity_mld": _f(props.get("capacity")),
+                "last_seen": props.get("last_seen"),
+                "inlet_BOD": _f(props.get("inlet_BOD")),
+                "inlet_COD": _f(props.get("inlet_COD")),
+                "inlet_TSS": _f(props.get("inlet_TSS")),
+                "inlet_pH": _f(props.get("inlet_pH")),
+                "outlet_BOD": _f(props.get("outlet_BOD")),
+                "outlet_COD": _f(props.get("outlet_COD")),
+                "outlet_TSS": _f(props.get("outlet_TSS")),
+                "outlet_pH": _f(props.get("outlet_pH")),
+                "lat": pt.y,
+                "lng": pt.x,
+            })
+
+        result.sort(key=lambda x: (x.get("zone") or "", x.get("name") or ""))
+        return JsonResponse({"stps": result, "total": len(result)})
+
+    except Exception as exc:
+        return JsonResponse({"detail": f"STP analysis failed: {exc}"}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def analysis_flow_direction(request):
+    """Return per-zone stats for flow direction (dominant directions) and flow accumulation."""
+    parsed, err = _parse_payload_and_selected_zones(request)
+    if err:
+        return err
+    selected_zones = parsed["selected_zones"]
+
+    D8_NAMES = {1: "E", 2: "SE", 4: "S", 8: "SW", 16: "W", 32: "NW", 64: "N", 128: "NE"}
+
+    def _flow_direction_stats(src, zone_geometries):
+        """Per-zone dominant direction + distribution from D8 raster."""
+        by_zone = {}
+        for zone_name, geoms in zone_geometries.items():
+            try:
+                geoms_proj = _reproject_geometries(geoms, src.crs)
+                masked_arr, _ = mask(src, geoms_proj, crop=True, filled=False)
+                band = masked_arr[0]
+                vals = band.compressed() if hasattr(band, "compressed") else np.asarray(band).flatten()
+                valid = vals[(vals > 0) & (vals < 200)].astype(int)
+                if len(valid) == 0:
+                    by_zone[zone_name] = None
+                    continue
+                from collections import Counter
+                cnt = Counter(valid.tolist())
+                total = sum(cnt.values())
+                dist = {name: round(cnt.get(code, 0) / total * 100, 1)
+                        for code, name in D8_NAMES.items() if cnt.get(code, 0) > 0}
+                dominant = max(dist, key=lambda k: dist[k]) if dist else None
+                by_zone[zone_name] = {
+                    "dominant_direction": dominant,
+                    "dominant_pct": dist.get(dominant) if dominant else None,
+                    "distribution": dist,
+                    "total_cells": total,
+                }
+            except Exception as exc:
+                by_zone[zone_name] = None
+        return by_zone
+
+    def _accumulation_stats(src, zone_geometries):
+        """Per-zone flow accumulation stats."""
+        by_zone = {}
+        errors = []
+        nodata = src.nodata
+        for zone_name, geoms in zone_geometries.items():
+            try:
+                geoms_proj = _reproject_geometries(geoms, src.crs)
+                masked_arr, _ = mask(src, geoms_proj, crop=True, filled=False)
+                band = masked_arr[0]
+                if hasattr(band, "compressed"):
+                    vals = band.compressed().astype(float)
+                else:
+                    arr = np.ma.getdata(band).flatten().astype(float)
+                    msk = np.ma.getmaskarray(band).flatten()
+                    vals = arr[~msk]
+                # Remove nodata: use tolerance only for large float nodata (e.g. -3.4e38); use exact match for small values
+                if nodata is not None:
+                    nd = float(nodata)
+                    if abs(nd) > 1e20:
+                        vals = vals[np.abs(vals - nd) > 1e20]
+                    else:
+                        vals = vals[vals != nd]
+                valid = vals[np.isfinite(vals) & (vals >= 1)]
+                if len(valid) == 0:
+                    by_zone[zone_name] = None
+                    continue
+                stream_cells = int(np.sum(valid >= 20))
+                by_zone[zone_name] = {
+                    "mean": round(float(np.mean(valid)), 2),
+                    "min": round(float(np.min(valid)), 2),
+                    "max": round(float(np.max(valid)), 2),
+                    "total_cells": int(len(valid)),
+                    "stream_cells": stream_cells,
+                    "stream_pct": round(stream_cells / max(len(valid), 1) * 100, 1),
+                }
+            except Exception as exc:
+                errors.append(f"{zone_name}: {exc}")
+                by_zone[zone_name] = None
+        return by_zone, errors
+
+    try:
+        resolved, zone_err = _resolve_zone_geometries(selected_zones)
+        if zone_err:
+            return zone_err
+        zone_geometries = resolved["zone_geometries"]
+        selected_bounds = _bounds_from_zone_geometries(zone_geometries)
+
+        dir_by_zone: dict = {}
+        accum_by_zone: dict = {}
+        direction_errors: list = []
+        accum_errors: list = []
+
+        try:
+            tiff_bytes = _fetch_coverage_tiff("dss_raster:flow_direction_1", selected_bounds)
+            with MemoryFile(tiff_bytes) as mf:
+                with mf.open() as src:
+                    dir_by_zone = _flow_direction_stats(src, zone_geometries)
+        except Exception as exc:
+            direction_errors.append(str(exc))
+
+        try:
+            tiff_bytes2 = _fetch_coverage_tiff("dss_raster:flow_direction_2", selected_bounds)
+            with MemoryFile(tiff_bytes2) as mf:
+                with mf.open() as src:
+                    accum_by_zone, zone_accum_errors = _accumulation_stats(src, zone_geometries)
+                    accum_errors.extend(zone_accum_errors)
+        except Exception as exc:
+            accum_errors.append(str(exc))
+
+        return JsonResponse({
+            "selected_zones": list(zone_geometries.keys()),
+            "flow_direction": {
+                "direction": {"by_zone": dir_by_zone, "errors": direction_errors},
+                "accumulation": {"by_zone": accum_by_zone, "errors": accum_errors},
+            },
+        }, safe=False)
+
+    except requests.RequestException as exc:
+        return JsonResponse({"detail": f"GeoServer fetch failed: {exc}"}, status=502)
+    except Exception as exc:
+        return JsonResponse({"detail": f"Flow direction analysis failed: {exc}"}, status=500)

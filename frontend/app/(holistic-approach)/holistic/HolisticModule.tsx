@@ -1,16 +1,63 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import "leaflet/dist/leaflet.css";
-import AdminLocation from "./components/AdminLocation";
+import AdminLocation, { STAGE_CONFIGS } from "./components/AdminLocation";
 import AdminMap from "./components/AdminMap";
-import { useLocationSelection } from "./hooks/useLocationSelection";
+import type { RwqSeason } from "../../shared/map-layers/NirmalRwqLayer";
+import { useLocationSelection } from "../../shared/hooks/useLocationSelection";
 import SplitActivityPanel from "./components/SplitActivityPanel";
 
 type HolisticModuleProps = {
   hideLeftPanel?: boolean;
 };
+
+type StageSnapshot = {
+  selectedDataUsed: string[];
+  proceededCriteria: string[];
+  proceededOnce: boolean;
+  analysisResult: any;
+  showRainfallLayer: boolean;
+  showRechargeLayer: boolean;
+  selectedRainfallYear: number | null;
+  outputLoading: boolean;
+  rainfallError: string;
+  groundwaterError: string;
+  tributaryDrainError: string;
+  demSlopeError: string;
+  flowDirectionError: string;
+  showOutputs: boolean;
+  rwqSeason: RwqSeason;
+  rwqStats: Record<string, Record<string, { mean: number | null; min: number | null; max: number | null }>> | null;
+  rwqError: string;
+  stpData: any[] | null;
+  stpError: string;
+};
+
+function emptySnapshot(): StageSnapshot {
+  return {
+    selectedDataUsed: [],
+    proceededCriteria: [],
+    proceededOnce: false,
+    analysisResult: null,
+    showRainfallLayer: false,
+    showRechargeLayer: false,
+    selectedRainfallYear: 2024,
+    outputLoading: false,
+    rainfallError: "",
+    groundwaterError: "",
+    tributaryDrainError: "",
+    demSlopeError: "",
+    flowDirectionError: "",
+    showOutputs: false,
+    rwqSeason: "monsoon" as RwqSeason,
+    rwqStats: null,
+    rwqError: "",
+    stpData: null,
+    stpError: "",
+  };
+}
 
 export default function HolisticModule({ hideLeftPanel = false }: HolisticModuleProps) {
   const backendBase = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:9000";
@@ -28,19 +75,22 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
   } = useLocationSelection();
 
   const [locationVisible, setLocationVisible] = useState(!hideLeftPanel);
-  const [showOutputs, setShowOutputs] = useState(false);
-  const [outputLoading, setOutputLoading] = useState(false);
-  const [rainfallError, setRainfallError] = useState("");
-  const [groundwaterError, setGroundwaterError] = useState("");
-  const [tributaryDrainError, setTributaryDrainError] = useState("");
-  const [demSlopeError, setDemSlopeError] = useState("");
-  const [analysisResult, setAnalysisResult] = useState<any>(null);
-  const [showRainfallLayer, setShowRainfallLayer] = useState(false);
-  const [showRechargeLayer, setShowRechargeLayer] = useState(false);
-  const [selectedRainfallYear, setSelectedRainfallYear] = useState<number | null>(2024);
-  const [selectedDataUsed, setSelectedDataUsed] = useState<string[]>([]);
 
-  const outputItems = ["Environmental Flow (e-flow) Map", "Flow Deficit Zones Map", "Seasonal Flow Variation Map", "Catchment Water Budget (SWAT outputs)", "Runoff Potential Map"];
+  // All stage snapshots — index 0 = stage 1 (Aviral Ganga), index 1 = stage 2 (Nirmal Ganga), etc.
+  const [stageIndex, setStageIndex] = useState(0);
+  const [snapshots, setSnapshots] = useState<StageSnapshot[]>([emptySnapshot()]);
+
+  // Current snapshot (convenience alias)
+  const snap = snapshots[stageIndex];
+
+  // Updater — patches only the current snapshot
+  const patchSnap = (patch: Partial<StageSnapshot>) => {
+    setSnapshots((prev) => {
+      const next = [...prev];
+      next[stageIndex] = { ...next[stageIndex], ...patch };
+      return next;
+    });
+  };
 
   useEffect(() => {
     document.body.classList.add("holistic-fullscreen-mode");
@@ -49,112 +99,206 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
     };
   }, []);
 
+  // Derive map criteria from the current snapshot
+  const { proceededCriteria } = snap;
+  const wantsRainfall = proceededCriteria.some((i) => i.toLowerCase().includes("rainfall"));
+  // "Groundwater recharge" (Aviral) — must NOT match "Groundwater quality" (Nirmal)
+  const wantsGroundwater = proceededCriteria.some((i) => i.toLowerCase().includes("groundwater recharge"));
+  const wantsGroundwaterQuality = proceededCriteria.some((i) => i.toLowerCase().includes("groundwater quality"));
+  const wantsRiverWaterQuality = proceededCriteria.some((i) => i.toLowerCase().includes("river water quality"));
+  const wantsStp = proceededCriteria.some((i) => i.toLowerCase().includes("stp"));
+  const wantsTributaryDrain = proceededCriteria.some((i) => { const v = i.toLowerCase(); return v.includes("tributary") || v.includes("drain"); });
+  const wantsDemSlope = proceededCriteria.some((i) => { const v = i.toLowerCase(); return v.includes("dem") || v.includes("slope"); });
+  const wantsFlowDirection = proceededCriteria.some((i) => i.toLowerCase().includes("surface flow"));
+
   const onToggleDataUsed = (item: string) => {
-    setSelectedDataUsed((prev) => (prev.includes(item) ? prev.filter((v) => v !== item) : [...prev, item]));
+    const isRemoving = snap.selectedDataUsed.includes(item);
+    const nextSelected = isRemoving
+      ? snap.selectedDataUsed.filter((v) => v !== item)
+      : [...snap.selectedDataUsed, item];
+    const nextProceed = isRemoving
+      ? snap.proceededCriteria.filter((v) => v !== item)
+      : snap.proceededCriteria;
+    const patch: Partial<StageSnapshot> = { selectedDataUsed: nextSelected, proceededCriteria: nextProceed };
+    if (isRemoving && item.toLowerCase().includes("rainfall")) patch.showRainfallLayer = false;
+    if (isRemoving && item.toLowerCase().includes("groundwater")) patch.showRechargeLayer = false;
+    patchSnap(patch);
   };
 
-  const wantsRainfall = selectedDataUsed.some((item) => item.toLowerCase().includes("rainfall"));
-  const wantsGroundwater = selectedDataUsed.some((item) => item.toLowerCase().includes("groundwater"));
-  const wantsTributaryDrain = selectedDataUsed.some((item) => {
-    const value = item.toLowerCase();
-    return value.includes("tributary") || value.includes("drain");
-  });
-  const wantsDemSlope = selectedDataUsed.some((item) => {
-    const value = item.toLowerCase();
-    return value.includes("dem") || value.includes("slope");
-  });
-
   const onProceed = async () => {
-    setShowOutputs(true);
-    setOutputLoading(true);
-    setRainfallError("");
-    setGroundwaterError("");
-    setTributaryDrainError("");
-    setDemSlopeError("");
-    try {
-      setShowRainfallLayer(wantsRainfall);
-      // Groundwater should be output-only (right panel), not rendered as map raster.
-      setShowRechargeLayer(false);
-      const nextResult: any = {
-        selected_zones: selectedZones,
-        rainfall: { years: [], by_zone: {} },
-        groundwater: { by_zone: {} },
-        tributary_drain: { layers: [], summary: {} },
-        dem_slope: { slope: null, dem: null, errors: { slope: [], dem: [] } },
-      };
+    const criteria = snap.selectedDataUsed;
+    const nowWantsRainfall = criteria.some((i) => i.toLowerCase().includes("rainfall"));
+    const nowWantsGroundwater = criteria.some((i) => i.toLowerCase().includes("groundwater"));
+    const nowWantsTributaryDrain = criteria.some((i) => { const v = i.toLowerCase(); return v.includes("tributary") || v.includes("drain"); });
+    const nowWantsDemSlope = criteria.some((i) => { const v = i.toLowerCase(); return v.includes("dem") || v.includes("slope"); });
+    const nowWantsFlowDirection = criteria.some((i) => i.toLowerCase().includes("surface flow"));
+    const nowWantsRiverWaterQuality = criteria.some((i) => i.toLowerCase().includes("river water quality"));
+    const nowWantsStp = criteria.some((i) => i.toLowerCase().includes("stp"));
 
-      if (wantsRainfall) {
-        const rainResponse = await fetch(`${backendBase}/analysis/rainfall`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+    patchSnap({
+      showOutputs: true,
+      outputLoading: true,
+      proceededCriteria: criteria,
+      proceededOnce: true,
+      showRainfallLayer: nowWantsRainfall,
+      showRechargeLayer: false,
+      rainfallError: "",
+      groundwaterError: "",
+      tributaryDrainError: "",
+      demSlopeError: "",
+      flowDirectionError: "",
+      rwqError: "",
+      rwqStats: null,
+      stpError: "",
+      stpData: null,
+    });
+
+    const nextResult: any = {
+      selected_zones: selectedZones,
+      rainfall: { years: [], by_zone: {} },
+      groundwater: { by_zone: {} },
+      tributary_drain: { layers: [], summary: {} },
+      dem_slope: { slope: null, dem: null, errors: { slope: [], dem: [] } },
+      flow_direction: { direction: { by_zone: {} }, accumulation: { by_zone: {} } },
+    };
+
+    try {
+      if (nowWantsRainfall) {
+        const res = await fetch(`${backendBase}/analysis/rainfall`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ selected_zones: selectedZones }),
         });
-        const rainData = await rainResponse.json().catch(() => ({}));
-        if (!rainResponse.ok) {
-          setRainfallError(rainData?.detail || `Rainfall analysis failed (${rainResponse.status})`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          patchSnap({ rainfallError: data?.detail || `Rainfall analysis failed (${res.status})` });
         } else {
-          nextResult.rainfall = rainData?.rainfall || nextResult.rainfall;
-          const years = Array.isArray(rainData?.rainfall?.years) ? rainData.rainfall.years.filter((y: any) => Number.isFinite(Number(y))) : [];
+          nextResult.rainfall = data?.rainfall || nextResult.rainfall;
+          const years = Array.isArray(data?.rainfall?.years)
+            ? data.rainfall.years.filter((y: any) => Number.isFinite(Number(y)))
+            : [];
           if (years.length) {
-            const sortedYears = [...years].map((y: any) => Number(y)).sort((a: number, b: number) => a - b);
-            setSelectedRainfallYear(sortedYears[sortedYears.length - 1]);
+            const sorted = [...years].map(Number).sort((a: number, b: number) => a - b);
+            patchSnap({ selectedRainfallYear: sorted[sorted.length - 1] });
           }
         }
       }
 
-      if (wantsGroundwater) {
-        const gwResponse = await fetch(`${backendBase}/analysis/groundwater`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+      if (nowWantsGroundwater) {
+        const res = await fetch(`${backendBase}/analysis/groundwater`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ selected_zones: selectedZones }),
         });
-        const gwData = await gwResponse.json().catch(() => ({}));
-        if (!gwResponse.ok) {
-          setGroundwaterError(gwData?.detail || `Groundwater analysis failed (${gwResponse.status})`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          patchSnap({ groundwaterError: data?.detail || `Groundwater analysis failed (${res.status})` });
         } else {
-          nextResult.groundwater = gwData?.groundwater || nextResult.groundwater;
+          nextResult.groundwater = data?.groundwater || nextResult.groundwater;
         }
       }
 
-      if (wantsTributaryDrain) {
-        const tdResponse = await fetch(`${backendBase}/analysis/tributary-drain`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+      if (nowWantsTributaryDrain) {
+        const res = await fetch(`${backendBase}/analysis/tributary-drain`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ selected_zones: selectedZones }),
         });
-        const tdData = await tdResponse.json().catch(() => ({}));
-        if (!tdResponse.ok) {
-          setTributaryDrainError(tdData?.detail || `Tributary & drain analysis failed (${tdResponse.status})`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          patchSnap({ tributaryDrainError: data?.detail || `Tributary & drain analysis failed (${res.status})` });
         } else {
-          nextResult.tributary_drain = tdData?.tributary_drain || nextResult.tributary_drain;
+          nextResult.tributary_drain = data?.tributary_drain || nextResult.tributary_drain;
         }
       }
 
-      if (wantsDemSlope) {
-        const dsResponse = await fetch(`${backendBase}/analysis/dem-slope`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+      if (nowWantsDemSlope) {
+        const res = await fetch(`${backendBase}/analysis/dem-slope`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ selected_zones: selectedZones }),
         });
-        const dsData = await dsResponse.json().catch(() => ({}));
-        if (!dsResponse.ok) {
-          setDemSlopeError(dsData?.detail || `DEM/Slope analysis failed (${dsResponse.status})`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          patchSnap({ demSlopeError: data?.detail || `DEM/Slope analysis failed (${res.status})` });
         } else {
-          nextResult.dem_slope = dsData?.dem_slope || nextResult.dem_slope;
+          nextResult.dem_slope = data?.dem_slope || nextResult.dem_slope;
         }
       }
 
-      setAnalysisResult(nextResult);
+      if (nowWantsFlowDirection) {
+        const res = await fetch(`${backendBase}/analysis/flow-direction`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ selected_zones: selectedZones }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          patchSnap({ flowDirectionError: data?.detail || `Flow direction analysis failed (${res.status})` });
+        } else {
+          nextResult.flow_direction = data?.flow_direction || nextResult.flow_direction;
+        }
+      }
+
+      if (nowWantsStp) {
+        const res = await fetch(`${backendBase}/analysis/nirmal-stp`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ selected_zones: selectedZones }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          patchSnap({ stpError: data?.detail || `STP analysis failed (${res.status})` });
+        } else {
+          patchSnap({ stpData: data?.stps || [] });
+        }
+      }
+
+      if (nowWantsRiverWaterQuality) {
+        const res = await fetch(`${backendBase}/analysis/nirmal-rwq-stats`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ selected_zones: selectedZones }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          patchSnap({ rwqError: data?.detail || `RWQ stats failed (${res.status})` });
+        } else {
+          patchSnap({ rwqStats: data?.rwq || null });
+        }
+      }
+
+      patchSnap({ analysisResult: nextResult });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Analysis request failed";
-      setRainfallError((prev) => prev || message);
-      setGroundwaterError((prev) => prev || message);
-      setTributaryDrainError((prev) => prev || message);
-      setDemSlopeError((prev) => prev || message);
+      const msg = err instanceof Error ? err.message : "Analysis request failed";
+      patchSnap({
+        rainfallError: msg, groundwaterError: msg,
+        tributaryDrainError: msg, demSlopeError: msg, flowDirectionError: msg,
+        rwqError: msg, stpError: msg,
+      });
     } finally {
-      setOutputLoading(false);
+      patchSnap({ outputLoading: false });
     }
   };
+
+  const onNext = () => {
+    const nextIndex = stageIndex + 1;
+    // Ensure a snapshot slot exists for the next stage
+    setSnapshots((prev) => {
+      if (prev.length <= nextIndex) {
+        return [...prev, emptySnapshot()];
+      }
+      return prev;
+    });
+    setStageIndex(nextIndex);
+  };
+
+  const onPrevious = () => {
+    if (stageIndex > 0) setStageIndex(stageIndex - 1);
+  };
+
+  const onStpDataLoaded = useCallback((stps: any[]) => {
+    patchSnap({ stpData: stps });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stageIndex]);
+
+  const { analysisResult, showRainfallLayer, showRechargeLayer, selectedRainfallYear,
+    outputLoading, rainfallError, groundwaterError, tributaryDrainError,
+    demSlopeError, flowDirectionError, showOutputs, rwqSeason, rwqStats, rwqError,
+    stpData, stpError } = snap;
 
   return (
     <div className="min-h-screen bg-[#eef2f8] p-1 md:p-2">
@@ -185,6 +329,16 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
               showRechargeLayer={showRechargeLayer}
               rainfallYear={selectedRainfallYear}
               clipApiBase={backendBase}
+              activeCriteria={[
+                ...(wantsTributaryDrain ? ["Tributary & drain flow"] : []),
+                ...(wantsDemSlope ? ["DEM, slope maps"] : []),
+                ...(wantsFlowDirection ? ["Surface flow direction & accumulation maps"] : []),
+                ...(wantsGroundwaterQuality ? ["Groundwater quality"] : []),
+                ...(wantsRiverWaterQuality ? ["River water quality"] : []),
+                ...(wantsStp ? ["STP details"] : []),
+              ]}
+              rwqSeason={rwqSeason}
+              onStpDataLoaded={onStpDataLoaded}
             />
           </div>
 
@@ -210,10 +364,15 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
                     error={error}
                     loading={loading}
                     onToggleLocation={() => setLocationVisible(false)}
-                    selectedDataUsed={selectedDataUsed}
+                    stageIndex={stageIndex}
+                    selectedDataUsed={snap.selectedDataUsed}
                     onToggleDataUsed={onToggleDataUsed}
                     onProceed={onProceed}
-                    proceedDisabled={selectedZones.length === 0}
+                    proceedDisabled={selectedZones.length === 0 || snap.selectedDataUsed.length === 0}
+                    proceededOnce={snap.proceededOnce}
+                    onNext={onNext}
+                    onPrevious={onPrevious}
+                    onGeneratePdf={() => window.print()}
                     selectedZones={selectedZones}
                     zoneOptions={zoneOptions}
                     displayedZones={displayedZones}
@@ -228,10 +387,13 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
             <aside className="absolute bottom-4 right-4 top-4 z-[900] w-[430px] max-w-[42vw] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
               <div className="h-full overflow-y-auto p-4">
                 <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-lg font-extrabold text-slate-900">Outputs</h3>
+                  <div>
+                    <h3 className="text-lg font-extrabold text-slate-900">Outputs</h3>
+                    <p className="text-xs text-slate-500">{STAGE_CONFIGS[stageIndex]?.title ?? `Stage ${stageIndex + 1}`}</p>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => setShowOutputs(false)}
+                    onClick={() => patchSnap({ showOutputs: false })}
                     className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                   >
                     Hide
@@ -243,121 +405,9 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
                     {selectedZones.length ? selectedZones.join(", ") : "N/A"}
                   </p>
                   <p className="mt-1">
-                    <span className="font-semibold">Selected Inputs:</span> {selectedDataUsed.length}
+                    <span className="font-semibold">Selected Inputs:</span> {snap.selectedDataUsed.length}
                   </p>
                 </div>
-             
-
-                {wantsRainfall ? (
-                  <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
-                    <p className="mb-2 text-sm font-bold text-slate-900">Rainfall Output (Selected Zones)</p>
-                    <div className="mb-2 rounded border border-slate-200 bg-slate-50 p-2 text-[11px]">
-                      <p className="mb-1 font-semibold text-slate-700">Legend (Rainfall mm)</p>
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-700">
-                        <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 border border-slate-500 bg-[rgba(0,248,33,0.72)]" />{"< 900"}</span>
-                        <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 border border-slate-500 bg-[rgba(37,99,235,0.72)]" />900-1000</span>
-                        <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 border border-slate-500 bg-[rgba(6,182,212,0.72)]" />1000-1100</span>
-                        <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 border border-slate-500 bg-[rgba(245,158,11,0.72)]" />1100-1200</span>
-                        <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 border border-slate-500 bg-[rgba(239,68,68,0.72)]" />1200-1300</span>
-                        <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 border border-slate-500 bg-[rgba(147,51,234,0.72)]" />1300-1400</span>
-                        <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 border border-slate-500 bg-[rgba(240,0,208,0.85)]" />{"> 1400"}</span>
-                      </div>
-                    </div>
-                    {outputLoading ? <p className="text-sm text-blue-700">Running analysis...</p> : null}
-                    {rainfallError ? <p className="text-sm text-red-700">{rainfallError}</p> : null}
-                    {!outputLoading && !rainfallError && analysisResult?.rainfall?.years?.length ? (
-                      <div className="mb-2">
-                        <label className="mb-1 block text-xs font-semibold text-slate-700">Rainfall Year (Map)</label>
-                        <select
-                          className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
-                          value={selectedRainfallYear ?? ""}
-                          onChange={(e) => setSelectedRainfallYear(Number(e.target.value))}
-                        >
-                          {analysisResult.rainfall.years.map((year: number) => (
-                            <option key={year} value={year}>
-                              {year}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    ) : null}
-                    {!outputLoading && !rainfallError && analysisResult?.rainfall?.by_zone ? (
-                      <div className="max-h-72 overflow-auto text-xs text-slate-700">
-                        <table className="w-full border-collapse">
-                          <thead>
-                            <tr className="bg-slate-50">
-                              <th className="border border-slate-200 px-2 py-1 text-left">Zone</th>
-                              <th className="border border-slate-200 px-2 py-1 text-left">Year</th>
-                              <th className="border border-slate-200 px-2 py-1 text-left">Mean Rainfall</th>
-                              <th className="border border-slate-200 px-2 py-1 text-left">Min Rainfall</th>
-                              <th className="border border-slate-200 px-2 py-1 text-left">Max Rainfall</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {Object.entries(analysisResult.rainfall.by_zone).map(([zone, rows]: [string, any]) => {
-                              const selectedYear = selectedRainfallYear ?? null;
-                              const rowForYear =
-                                (rows || []).find((r: any) => Number(r?.year) === Number(selectedYear)) || null;
-                              return (
-                                <tr key={`${zone}-${selectedYear ?? "na"}`}>
-                                  <td className="border border-slate-200 px-2 py-1 font-semibold">{zone}</td>
-                                  <td className="border border-slate-200 px-2 py-1">{selectedYear ?? "N/A"}</td>
-                                  <td className="border border-slate-200 px-2 py-1">
-                                    {rowForYear?.mean === null || rowForYear?.mean === undefined ? "N/A" : rowForYear.mean}
-                                  </td>
-                                  <td className="border border-slate-200 px-2 py-1">
-                                    {rowForYear?.min === null || rowForYear?.min === undefined ? "N/A" : rowForYear.min}
-                                  </td>
-                                  <td className="border border-slate-200 px-2 py-1">
-                                    {rowForYear?.max === null || rowForYear?.max === undefined ? "N/A" : rowForYear.max}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-
-                {wantsGroundwater ? (
-                  <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
-                    <p className="mb-2 text-sm font-bold text-slate-900">Groundwater Recharge Output (Selected Zones)</p>
-                    {outputLoading ? <p className="text-sm text-blue-700">Running analysis...</p> : null}
-                    {groundwaterError ? <p className="text-sm text-red-700">{groundwaterError}</p> : null}
-                    {!outputLoading && !groundwaterError && analysisResult?.groundwater?.by_zone ? (
-                      <div className="max-h-56 overflow-auto text-xs text-slate-700">
-                        <table className="w-full border-collapse">
-                          <thead>
-                            <tr className="bg-slate-50">
-                              <th className="border border-slate-200 px-2 py-1 text-left">Zone</th>
-                              <th className="border border-slate-200 px-2 py-1 text-left">Mean Recharge</th>
-                              <th className="border border-slate-200 px-2 py-1 text-left">Min Recharge</th>
-                              <th className="border border-slate-200 px-2 py-1 text-left">Max Recharge</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {Object.entries(analysisResult.groundwater.by_zone).map(([zone, row]: [string, any]) => (
-                              <tr key={`gw-${zone}`}>
-                                <td className="border border-slate-200 px-2 py-1 font-semibold">{zone}</td>
-                                <td className="border border-slate-200 px-2 py-1">
-                                  {row?.mean === null || row?.mean === undefined ? "N/A" : row.mean}
-                                </td>
-                                <td className="border border-slate-200 px-2 py-1">
-                                  {row?.min === null || row?.min === undefined ? "N/A" : row.min}
-                                </td>
-                                <td className="border border-slate-200 px-2 py-1">
-                                  {row?.max === null || row?.max === undefined ? "N/A" : row.max}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
 
                 {wantsTributaryDrain ? (
                   <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
@@ -395,6 +445,106 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
                   </div>
                 ) : null}
 
+                {wantsRainfall ? (
+                  <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+                    <p className="mb-2 text-sm font-bold text-slate-900">Rainfall Output (Selected Zones)</p>
+                    <div className="mb-2 rounded border border-slate-200 bg-slate-50 p-2 text-[11px]">
+                      <p className="mb-1 font-semibold text-slate-700">Legend (Rainfall mm)</p>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-700">
+                        <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 border border-slate-500 bg-[rgba(0,248,33,0.72)]" />{"< 900"}</span>
+                        <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 border border-slate-500 bg-[rgba(37,99,235,0.72)]" />900-1000</span>
+                        <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 border border-slate-500 bg-[rgba(6,182,212,0.72)]" />1000-1100</span>
+                        <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 border border-slate-500 bg-[rgba(245,158,11,0.72)]" />1100-1200</span>
+                        <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 border border-slate-500 bg-[rgba(239,68,68,0.72)]" />1200-1300</span>
+                        <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 border border-slate-500 bg-[rgba(147,51,234,0.72)]" />1300-1400</span>
+                        <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 border border-slate-500 bg-[rgba(240,0,208,0.85)]" />{"> 1400"}</span>
+                      </div>
+                    </div>
+                    {outputLoading ? <p className="text-sm text-blue-700">Running analysis...</p> : null}
+                    {rainfallError ? <p className="text-sm text-red-700">{rainfallError}</p> : null}
+                    {!outputLoading && !rainfallError && analysisResult?.rainfall?.years?.length ? (
+                      <div className="mb-2">
+                        <label className="mb-1 block text-xs font-semibold text-slate-700">Rainfall Year (Map)</label>
+                        <select
+                          className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
+                          value={selectedRainfallYear ?? ""}
+                          onChange={(e) => patchSnap({ selectedRainfallYear: Number(e.target.value) })}
+                        >
+                          {analysisResult.rainfall.years.map((year: number) => (
+                            <option key={year} value={year}>{year}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : null}
+                    {!outputLoading && !rainfallError && analysisResult?.rainfall?.by_zone ? (
+                      <div className="max-h-72 overflow-auto text-xs text-slate-700">
+                        <table className="w-full border-collapse">
+                          <thead>
+                            <tr className="bg-slate-50">
+                              <th className="border border-slate-200 px-2 py-1 text-left">Zone</th>
+                              <th className="border border-slate-200 px-2 py-1 text-left">Year</th>
+                              <th className="border border-slate-200 px-2 py-1 text-left">Mean Rainfall</th>
+                              <th className="border border-slate-200 px-2 py-1 text-left">Min Rainfall</th>
+                              <th className="border border-slate-200 px-2 py-1 text-left">Max Rainfall</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(analysisResult.rainfall.by_zone).map(([zone, rows]: [string, any]) => {
+                              const rowForYear = (rows || []).find((r: any) => Number(r?.year) === Number(selectedRainfallYear)) || null;
+                              return (
+                                <tr key={`${zone}-${selectedRainfallYear ?? "na"}`}>
+                                  <td className="border border-slate-200 px-2 py-1 font-semibold">{zone}</td>
+                                  <td className="border border-slate-200 px-2 py-1">{selectedRainfallYear ?? "N/A"}</td>
+                                  <td className="border border-slate-200 px-2 py-1">{rowForYear?.mean == null ? "N/A" : rowForYear.mean}</td>
+                                  <td className="border border-slate-200 px-2 py-1">{rowForYear?.min == null ? "N/A" : rowForYear.min}</td>
+                                  <td className="border border-slate-200 px-2 py-1">{rowForYear?.max == null ? "N/A" : rowForYear.max}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {wantsGroundwater ? (
+                  <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+                    <p className="mb-2 text-sm font-bold text-slate-900">Groundwater Recharge Output (Selected Zones)</p>
+                    {outputLoading ? <p className="text-sm text-blue-700">Running analysis...</p> : null}
+                    {groundwaterError ? <p className="text-sm text-red-700">{groundwaterError}</p> : null}
+                    {!outputLoading && !groundwaterError && analysisResult?.groundwater?.by_zone ? (
+                      <div className="max-h-56 overflow-auto text-xs text-slate-700">
+                        <table className="w-full border-collapse">
+                          <thead>
+                            <tr className="bg-slate-50">
+                              <th className="border border-slate-200 px-2 py-1 text-left">Zone</th>
+                              <th className="border border-slate-200 px-2 py-1 text-left">Year</th>
+                              <th className="border border-slate-200 px-2 py-1 text-left">Mean Recharge</th>
+                              <th className="border border-slate-200 px-2 py-1 text-left">Min Recharge</th>
+                              <th className="border border-slate-200 px-2 py-1 text-left">Max Recharge</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(analysisResult.groundwater.by_zone).flatMap(([zone, rows]: [string, any]) => {
+                              const entries = Array.isArray(rows) ? rows : [rows];
+                              return entries.map((row: any, i: number) => (
+                                <tr key={`gw-${zone}-${i}`}>
+                                  {i === 0 && <td className="border border-slate-200 px-2 py-1 font-semibold" rowSpan={entries.length}>{zone}</td>}
+                                  <td className="border border-slate-200 px-2 py-1">{row?.year ?? "—"}</td>
+                                  <td className="border border-slate-200 px-2 py-1">{row?.mean == null ? "N/A" : Number(row.mean).toFixed(2)}</td>
+                                  <td className="border border-slate-200 px-2 py-1">{row?.min == null ? "N/A" : Number(row.min).toFixed(2)}</td>
+                                  <td className="border border-slate-200 px-2 py-1">{row?.max == null ? "N/A" : Number(row.max).toFixed(2)}</td>
+                                </tr>
+                              ));
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 {wantsDemSlope ? (
                   <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
                     <p className="mb-2 text-sm font-bold text-slate-900">DEM & Slope Output (Selected Zones)</p>
@@ -403,9 +553,7 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
 
                     {!outputLoading && !demSlopeError && analysisResult?.dem_slope?.slope?.by_zone ? (
                       <div className="mb-3">
-                        <p className="mb-1 text-xs font-semibold text-slate-700">
-                          Slope ({analysisResult?.dem_slope?.slope?.coverage || "N/A"})
-                        </p>
+                        <p className="mb-1 text-xs font-semibold text-slate-700">Slope ({analysisResult?.dem_slope?.slope?.coverage || "N/A"})</p>
                         <div className="max-h-44 overflow-auto text-xs text-slate-700">
                           <table className="w-full border-collapse">
                             <thead>
@@ -433,9 +581,7 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
 
                     {!outputLoading && !demSlopeError && analysisResult?.dem_slope?.dem?.by_zone ? (
                       <div>
-                        <p className="mb-1 text-xs font-semibold text-slate-700">
-                          DEM ({analysisResult?.dem_slope?.dem?.coverage || "N/A"})
-                        </p>
+                        <p className="mb-1 text-xs font-semibold text-slate-700">DEM ({analysisResult?.dem_slope?.dem?.coverage || "N/A"})</p>
                         <div className="max-h-44 overflow-auto text-xs text-slate-700">
                           <table className="w-full border-collapse">
                             <thead>
@@ -460,6 +606,221 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
                         </div>
                       </div>
                     ) : null}
+                  </div>
+                ) : null}
+
+                {wantsFlowDirection ? (
+                  <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+                    <p className="mb-2 text-sm font-bold text-slate-900">Surface Flow Direction & Accumulation Output</p>
+                    {outputLoading ? <p className="text-sm text-blue-700">Running analysis...</p> : null}
+                    {flowDirectionError ? <p className="text-sm text-red-700">{flowDirectionError}</p> : null}
+
+                    {!outputLoading && !flowDirectionError && (
+                      <div className="mb-2 rounded border border-slate-200 bg-slate-50 p-2 text-[11px]">
+                        <p className="mb-1 font-semibold text-slate-700">Direction Legend</p>
+                        <div className="flex flex-wrap gap-x-2 gap-y-1">
+                          {[["→ E","#3b82f6"],["↘ SE","#06b6d4"],["↓ S","#22c55e"],["↙ SW","#84cc16"],["← W","#eab308"],["↖ NW","#f97316"],["↑ N","#ef4444"],["↗ NE","#a855f7"]].map(([label, color]) => (
+                            <span key={label} className="flex items-center gap-1">
+                              <span className="inline-block h-3 w-4 rounded-sm border border-slate-300" style={{ background: color }} />
+                              {label}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {!outputLoading && !flowDirectionError && analysisResult?.flow_direction?.direction?.by_zone &&
+                      Object.keys(analysisResult.flow_direction.direction.by_zone).length > 0 ? (
+                      <div className="mb-3">
+                        <p className="mb-1 text-xs font-semibold text-slate-700">Flow Direction (per zone)</p>
+                        <div className="max-h-48 overflow-auto text-xs text-slate-700">
+                          <table className="w-full border-collapse">
+                            <thead>
+                              <tr className="bg-slate-50">
+                                <th className="border border-slate-200 px-2 py-1 text-left">Zone</th>
+                                <th className="border border-slate-200 px-2 py-1 text-left">Dominant Dir.</th>
+                                <th className="border border-slate-200 px-2 py-1 text-left">%</th>
+                                <th className="border border-slate-200 px-2 py-1 text-left">Distribution</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {Object.entries(analysisResult.flow_direction.direction.by_zone).map(([zone, row]: [string, any]) => (
+                                <tr key={`fd-${zone}`}>
+                                  <td className="border border-slate-200 px-2 py-1 font-semibold">{zone}</td>
+                                  <td className="border border-slate-200 px-2 py-1">{row?.dominant_direction ?? "N/A"}</td>
+                                  <td className="border border-slate-200 px-2 py-1">{row?.dominant_pct != null ? `${row.dominant_pct}%` : "N/A"}</td>
+                                  <td className="border border-slate-200 px-2 py-1 text-[10px]">
+                                    {row?.distribution ? Object.entries(row.distribution).map(([d, p]: [string, any]) => `${d}:${p}%`).join(" ") : "N/A"}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {wantsRiverWaterQuality ? (
+                  <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+                    <p className="mb-2 text-sm font-bold text-slate-900">River Water Quality (Nirmal Ganga)</p>
+                    {/* Season switcher — also updates map layer */}
+                    <div className="mb-2 flex gap-1">
+                      {(["premonsoon", "monsoon", "postmonsoon"] as RwqSeason[]).map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => patchSnap({ rwqSeason: s })}
+                          className={`flex-1 rounded border px-2 py-1 text-[11px] font-semibold transition ${
+                            rwqSeason === s
+                              ? "border-blue-600 bg-blue-600 text-white"
+                              : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                          }`}
+                        >
+                          {s === "premonsoon" ? "Pre-Monsoon" : s === "monsoon" ? "Monsoon" : "Post-Monsoon"}
+                        </button>
+                      ))}
+                    </div>
+                    {/* Legend */}
+                    <div className="mb-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-600">
+                      {([["#22c55e","≥150 Excellent"],["#84cc16","≥120 Good"],["#facc15","≥100 Moderate"],["#f97316","≥80 Poor"],["#dc2626","<80 Critical"]] as [string,string][]).map(([bg, label]) => (
+                        <span key={label} className="flex items-center gap-1">
+                          <span className="inline-block h-3 w-4 rounded-sm border border-slate-300" style={{ background: bg }} />
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                    {/* Stats table */}
+                    {outputLoading ? <p className="text-sm text-blue-700">Running analysis...</p> : null}
+                    {rwqError ? <p className="text-sm text-red-700">{rwqError}</p> : null}
+                    {!outputLoading && !rwqError && rwqStats ? (() => {
+                      const seasonData = rwqStats[rwqSeason] ?? {};
+                      const zones = Object.keys(seasonData);
+                      if (!zones.length) return <p className="text-xs text-slate-500">No data for selected zones.</p>;
+                      const seasonLabel = rwqSeason === "premonsoon" ? "Pre-Monsoon" : rwqSeason === "monsoon" ? "Monsoon" : "Post-Monsoon";
+                      return (
+                        <div className="overflow-auto">
+                          <p className="mb-1 text-[11px] font-semibold text-slate-600">{seasonLabel} — RWQ Index per Zone</p>
+                          <table className="w-full border-collapse text-xs text-slate-700">
+                            <thead>
+                              <tr className="bg-slate-50">
+                                <th className="border border-slate-200 px-2 py-1 text-left">Zone</th>
+                                <th className="border border-slate-200 px-2 py-1 text-right">Min</th>
+                                <th className="border border-slate-200 px-2 py-1 text-right">Mean</th>
+                                <th className="border border-slate-200 px-2 py-1 text-right">Max</th>
+                                <th className="border border-slate-200 px-2 py-1 text-left">Quality</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {zones.map((zone) => {
+                                const row = seasonData[zone];
+                                const mean = row?.mean;
+                                const quality = mean == null ? "—"
+                                  : mean >= 150 ? "Excellent"
+                                  : mean >= 120 ? "Good"
+                                  : mean >= 100 ? "Moderate"
+                                  : mean >= 80  ? "Poor"
+                                  : "Critical";
+                                const qualityColor = mean == null ? "#94a3b8"
+                                  : mean >= 150 ? "#22c55e"
+                                  : mean >= 120 ? "#84cc16"
+                                  : mean >= 100 ? "#ca8a04"
+                                  : mean >= 80  ? "#f97316"
+                                  : "#dc2626";
+                                return (
+                                  <tr key={zone}>
+                                    <td className="border border-slate-200 px-2 py-1 font-semibold">{zone}</td>
+                                    <td className="border border-slate-200 px-2 py-1 text-right">{row?.min ?? "N/A"}</td>
+                                    <td className="border border-slate-200 px-2 py-1 text-right">{row?.mean ?? "N/A"}</td>
+                                    <td className="border border-slate-200 px-2 py-1 text-right">{row?.max ?? "N/A"}</td>
+                                    <td className="border border-slate-200 px-2 py-1 font-semibold" style={{ color: qualityColor }}>{quality}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                          <p className="mt-1 text-[10px] text-slate-400">Higher RWQ index = better water quality. Values from {seasonLabel.toLowerCase()} raster clipped to selected zones.</p>
+                        </div>
+                      );
+                    })() : null}
+                  </div>
+                ) : null}
+
+                {wantsStp ? (
+                  <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+                    <p className="mb-2 text-sm font-bold text-slate-900">STP Details (Selected Zones)</p>
+                    {outputLoading ? <p className="text-sm text-blue-700">Running analysis...</p> : null}
+                    {stpError ? <p className="text-sm text-red-700">{stpError}</p> : null}
+                    {!outputLoading && !stpError && stpData != null ? (
+                      stpData.length === 0
+                        ? <p className="text-xs text-slate-500">No STPs found in selected zones.</p>
+                        : (
+                          <div className="max-h-96 overflow-auto">
+                            <p className="mb-2 text-[11px] text-slate-500">{stpData.length} STP{stpData.length > 1 ? "s" : ""} found — click markers on map for full details</p>
+                            {stpData.map((stp: any, i: number) => {
+                              const obod = stp.outlet_BOD;
+                              const dotColor = obod == null ? "#f59e0b" : obod <= 30 ? "#22c55e" : obod <= 60 ? "#f97316" : "#ef4444";
+                              const v = (val: number | null) => val != null ? val : "—";
+                              return (
+                                <div key={i} className="mb-3 rounded border border-slate-200 p-2">
+                                  <div className="mb-1 flex items-start justify-between gap-2">
+                                    <span className="text-[11px] font-bold text-slate-800 leading-tight">{stp.name}</span>
+                                    <span className="shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold text-white" style={{ background: dotColor }}>
+                                      {stp.status ?? "Live"}
+                                    </span>
+                                  </div>
+                                  <p className="mb-1 text-[10px] text-slate-500">{[stp.city, stp.district, stp.state].filter(Boolean).join(" · ")}{stp.capacity_mld != null ? ` · ${stp.capacity_mld} MLD` : ""}</p>
+                                  <table className="w-full border-collapse text-[11px] text-slate-700">
+                                    <thead>
+                                      <tr className="bg-slate-50">
+                                        <th className="border border-slate-200 px-1.5 py-1 text-left text-[10px] text-slate-500">Param</th>
+                                        <th className="border border-slate-200 px-1.5 py-1 text-right text-[10px] text-slate-500">Inlet</th>
+                                        <th className="border border-slate-200 px-1.5 py-1 text-right text-[10px] text-slate-500">Outlet</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {[
+                                        ["BOD (mg/L)", stp.inlet_BOD, stp.outlet_BOD],
+                                        ["COD (mg/L)", stp.inlet_COD, stp.outlet_COD],
+                                        ["TSS (mg/L)", stp.inlet_TSS, stp.outlet_TSS],
+                                        ["pH", stp.inlet_pH, stp.outlet_pH],
+                                      ].map(([param, inlet, outlet]) => (
+                                        <tr key={String(param)}>
+                                          <td className="border border-slate-200 px-1.5 py-1 text-slate-600">{param}</td>
+                                          <td className="border border-slate-200 px-1.5 py-1 text-right">{v(inlet as number | null)}</td>
+                                          <td className="border border-slate-200 px-1.5 py-1 text-right font-semibold">{v(outlet as number | null)}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                  {stp.last_seen && <p className="mt-1 text-[9px] text-slate-400">Last seen: {stp.last_seen}</p>}
+                                </div>
+                              );
+                            })}
+                            <div className="mt-1 flex gap-3 text-[10px] text-slate-500">
+                              <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-green-500" />Outlet BOD ≤30</span>
+                              <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-orange-400" />≤60</span>
+                              <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-red-500" />&gt;60</span>
+                              <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-amber-400" />No data</span>
+                            </div>
+                          </div>
+                        )
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {wantsGroundwaterQuality ? (
+                  <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+                    <p className="mb-2 text-sm font-bold text-slate-900">Groundwater Quality (Nirmal Ganga)</p>
+                  
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-600">
+                      <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm border border-slate-300" style={{ background: "#22c55e" }} /> Excellent (0.8 - 1)</span>
+                      <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm border border-slate-300" style={{ background: "#84cc16" }} /> Good (0.6 - 0.8)</span>
+                      <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm border border-slate-300" style={{ background: "#facc15" }} /> Moderate (0.4 - 0.6)</span>
+                      <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm border border-slate-300" style={{ background: "#f97316" }} /> Poor (0.2 - 0.4)</span>
+                      <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm border border-slate-300" style={{ background: "#dc2626" }} /> Critical (0 - 0.2)</span>
+                    </div>
                   </div>
                 ) : null}
               </div>

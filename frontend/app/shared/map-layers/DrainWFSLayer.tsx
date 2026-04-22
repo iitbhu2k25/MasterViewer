@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { GeoJSON } from "react-leaflet";
 import L from "leaflet";
-import type { FeatureCollection } from "../../(holistic-approach)/holistic/types/location";
+import type { FeatureCollection } from "../types";
 
 const GEOSERVER_WFS = "http://localhost:9090/geoserver/dss_vector/ows";
 
@@ -14,7 +14,6 @@ export const DRAIN_CONFIGS = [
   { key: "untapped", typeName: "dss_vector:untapped_drain",        color: "#dc2626", label: "Untapped Drain" },
 ] as const;
 
-/* ─── Flag SVG icon ─────────────────────────────────────────────────────── */
 function makeFlagIcon(color: string): L.DivIcon {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="32" viewBox="0 0 22 32">
     <line x1="3.5" y1="1" x2="3.5" y2="32" stroke="${color}" stroke-width="2.2" stroke-linecap="round"/>
@@ -30,7 +29,6 @@ function makeFlagIcon(color: string): L.DivIcon {
   });
 }
 
-/* ─── Point-in-polygon (GeoJSON coords = [lng, lat]) ───────────────────── */
 function pip(pt: number[], ring: number[][]): boolean {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
@@ -53,23 +51,19 @@ function coordInZone(coord: number[], zoneFeature: any): boolean {
   return rings.some((r) => pip(coord, r));
 }
 
-/** Sample representative coordinates from a feature for zone-intersection check */
 function sampleCoords(feature: any): number[][] {
   const g = feature?.geometry;
   if (!g) return [];
   switch (g.type) {
-    case "Point":
-      return [g.coordinates];
-    case "MultiPoint":
-      return g.coordinates;
+    case "Point": return [g.coordinates];
+    case "MultiPoint": return g.coordinates;
     case "LineString": {
       const c: number[][] = g.coordinates;
       return [c[0], c[Math.floor(c.length / 2)], c[c.length - 1]];
     }
     case "MultiLineString":
       return (g.coordinates as number[][][]).flatMap((line) => [line[0], line[Math.floor(line.length / 2)]]);
-    default:
-      return [];
+    default: return [];
   }
 }
 
@@ -81,7 +75,6 @@ function filterByZones(fc: any, zoneFeatures: any[]): any {
   return { type: "FeatureCollection", features };
 }
 
-/** Return a GeoJSON Point feature at the midpoint of a line/multiline feature */
 function midpointOf(f: any): any | null {
   const g = f?.geometry;
   if (!g) return null;
@@ -101,7 +94,6 @@ function getZoneName(f: any): string {
   return String(p.id_ ?? p.ID_ ?? p.zone ?? p.Zone ?? p.ZONE ?? p.area_name ?? p.Area ?? p.NAME ?? "").trim().toUpperCase();
 }
 
-/* ─── Main component ────────────────────────────────────────────────────── */
 type Props = {
   areaGeojson: FeatureCollection | null;
   selectedZones: string[];
@@ -110,7 +102,6 @@ type Props = {
 export default function DrainWFSLayer({ areaGeojson, selectedZones }: Props) {
   const [rawData, setRawData] = useState<Record<string, any>>({});
 
-  // Fetch once on mount
   useEffect(() => {
     DRAIN_CONFIGS.forEach(({ key, typeName }) => {
       fetch(
@@ -156,7 +147,6 @@ export default function DrainWFSLayer({ areaGeojson, selectedZones }: Props) {
 
         return (
           <Fragment key={`drain-${key}-${zoneKey}`}>
-            {/* Colored lines */}
             {lineFeats.length > 0 && (
               <GeoJSON
                 key={`dl-${key}-${zoneKey}`}
@@ -165,7 +155,6 @@ export default function DrainWFSLayer({ areaGeojson, selectedZones }: Props) {
                 onEachFeature={(_f, layer) => layer.bindTooltip(label, { sticky: true, className: "drain-tooltip" })}
               />
             )}
-            {/* Flag at the midpoint of each line */}
             {midpointFeats.length > 0 && (
               <GeoJSON
                 key={`dm-${key}-${zoneKey}`}
@@ -173,7 +162,6 @@ export default function DrainWFSLayer({ areaGeojson, selectedZones }: Props) {
                 pointToLayer={withTooltip}
               />
             )}
-            {/* Point features (e.g. STP) as flag markers */}
             {pointFeats.length > 0 && (
               <GeoJSON
                 key={`dp-${key}-${zoneKey}`}

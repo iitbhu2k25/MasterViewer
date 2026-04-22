@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { StickyNote } from "../../../split/components/SplitViewerWindow";
+import type { StickyNote } from "../../../shared/types";
 
 export type SplitMark = {
   id: string;
@@ -90,7 +90,7 @@ function ShapeIcon({ tool, color, size = 15 }: { tool: string; color: string; si
 // ── PDF export ────────────────────────────────────────────────────────────────
 function exportPDF(s: SplitSession) {
   const lines: string[] = [];
-  lines.push("SPLIT SCREEN SESSION REPORT");
+  lines.push("SESSION REPORT");
   lines.push("=".repeat(52));
   lines.push(`Session ID   : ${s.sessionId}`);
   lines.push(`Started      : ${fmt(s.startedAt)}`);
@@ -137,7 +137,7 @@ function exportPDF(s: SplitSession) {
   pre { white-space: pre-wrap; word-break: break-word; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; font-size: 12px; }
   @media print { body { margin: 20px; } pre { border: none; padding: 0; background: none; } }
 </style></head><body>
-<h1>Split Screen Session Report</h1>
+<h1>Session Report</h1>
 <div class="sub">Generated: ${new Date().toLocaleString()}</div>
 <pre>${lines.join("\n")}</pre>
 </body></html>`;

@@ -12,10 +12,13 @@ RASTER_WORKSPACE = "dss_raster"
 # Paths
 ZIP_DIR = Path("media/gwa_data/shp_zip")
 
+
 TIFF_DIRS = [
     Path("media/files/aviral/Rainfall"),
     Path("media/files/aviral/Recharge"),
     Path("media/files/aviral/slope"),
+    Path("media/files/aviral/flow_direction"),
+    Path("media/files/nirmal"),
 ]
 
 # ================= WORKSPACE =================

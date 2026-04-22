@@ -59,21 +59,17 @@ export default function DemSlopeRasterLayer({
     const load = async () => {
       try {
         cleanup();
-        
+
         const response = await fetch(`${clipApiBase}/analysis/dem-slope-clip`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            selected_zones: selectedZones,
-            data_type: dataType,
-          }),
+          body: JSON.stringify({ selected_zones: selectedZones, data_type: dataType }),
         });
 
         if (!response.ok || cancelled) return;
 
         const arrayBuffer = await response.arrayBuffer();
-        
-        // Dynamic imports for georaster libs
+
         const parseGeorasterModule: any = await import("georaster");
         const georasterLayerModule: any = await import("georaster-layer-for-leaflet");
         const parseGeoraster = parseGeorasterModule.default || parseGeorasterModule;
@@ -90,8 +86,7 @@ export default function DemSlopeRasterLayer({
             const val = pixelValues[0];
             if (val === undefined || val === null || isNaN(val)) return null;
             if (nodata !== undefined && nodata !== null && Math.abs(val - nodata) < 0.0001) return null;
-            
-            // Mask extremely low values if they are likely artifacts or water
+
             if (dataType === "slope" && val < 0) return null;
             if (dataType === "dem" && val < -100) return null;
 

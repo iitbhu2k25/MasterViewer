@@ -1,14 +1,24 @@
 import { ZoneOption } from "../types/location";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { STAGE_CONFIGS } from "../../../shared/criteria-configs";
+
+// Re-export so HolisticModule can import from here
+export { STAGE_CONFIGS };
+export type { StageConfig } from "../../../shared/criteria-configs";
 
 type Props = {
   error: string;
   loading?: boolean;
   onToggleLocation?: () => void;
+  stageIndex: number;
   selectedDataUsed: string[];
   onToggleDataUsed: (item: string) => void;
   onProceed: () => void;
   proceedDisabled?: boolean;
+  proceededOnce?: boolean;
+  onNext: () => void;
+  onPrevious: () => void;
+  onGeneratePdf?: () => void;
   selectedZones: string[];
   zoneOptions: ZoneOption[];
   displayedZones: number;
@@ -19,10 +29,15 @@ export default function AdminLocation({
   error,
   loading,
   onToggleLocation,
+  stageIndex,
   selectedDataUsed,
   onToggleDataUsed,
   onProceed,
   proceedDisabled,
+  proceededOnce,
+  onNext,
+  onPrevious,
+  onGeneratePdf,
   selectedZones,
   zoneOptions,
   displayedZones,
@@ -47,25 +62,30 @@ export default function AdminLocation({
     if (selectedZones.length === 1) return selectedZones[0];
     return `${selectedZones.length} zones selected`;
   }, [selectedZones]);
+
   const areAllZonesSelected = zoneOptions.length > 0 && selectedZones.length === zoneOptions.length;
 
-  const dataUsedOptions = [
-    "River flow (monthly)",
-    "Tributary & drain flow",
-    "Rainfall & runoff",
-    "Groundwater recharge",
-    "Channel geometry (width, depth)",
-    "DEM, slope maps",
-    "Surface flow direction & accumulation maps",
-  ];
+  const isFirstStage = stageIndex === 0;
+  const isLastStage = stageIndex === STAGE_CONFIGS.length - 1;
+  const stageConfig = STAGE_CONFIGS[stageIndex] ?? {
+    title: `Stage ${stageIndex + 1}`,
+    criteria: [],
+  };
+  // For stages beyond the defined configs, generate placeholder criteria
+  const criteriaOptions = stageConfig.criteria;
+
+  // Always show exactly the defined stages — never more
+  const displayCount = STAGE_CONFIGS.length;
 
   return (
     <section className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="mb-3 flex items-center justify-between rounded-lg bg-slate-100 px-3 py-2">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-blue-600">◎</span>
-          <h2 className="text-sm font-extrabold uppercase tracking-wider text-slate-900">Aviral Ganga</h2>
-          {/* <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-800">Zone</span> */}
+      {/* Header */}
+      <div className="mb-3 flex items-center rounded-lg bg-slate-100 px-3 py-2">
+        <div className="flex flex-1 justify-center">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-blue-600">◎</span>
+            <h2 className="text-sm font-extrabold uppercase tracking-wider text-slate-900">{stageConfig.title}</h2>
+          </div>
         </div>
         <button
           type="button"
@@ -77,108 +97,193 @@ export default function AdminLocation({
         </button>
       </div>
 
+      {/* Stage progress dots */}
+      <div className="mb-3 flex items-center gap-1.5 px-1">
+        {Array.from({ length: displayCount }).map((_, i) => (
+          <div key={i} className="flex items-center gap-1.5" style={{ flex: i < displayCount - 1 ? "1" : "none" }}>
+            <div
+              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                i === stageIndex
+                  ? "bg-blue-600 text-white"
+                  : i < stageIndex
+                  ? "bg-blue-200 text-blue-700"
+                  : "bg-slate-200 text-slate-500"
+              }`}
+            >
+              {i + 1}
+            </div>
+            {i < displayCount - 1 && (
+              <div className={`h-0.5 flex-1 ${i < stageIndex ? "bg-blue-400" : "bg-slate-200"}`} />
+            )}
+          </div>
+        ))}
+      </div>
+
       <div className="min-h-0 flex-1 overflow-y-auto pr-1">
         {error ? (
           <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
         ) : null}
 
+        {/* Zone selector — locked on stages beyond the first */}
         <div className="space-y-3">
           <div>
             <label className="mb-1 block text-sm font-semibold text-slate-700">Zone</label>
-            <div ref={zoneRef} className="relative">
+            {!isFirstStage ? (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                <div className="flex flex-wrap gap-1">
+                  {selectedZones.length ? selectedZones.map((z) => (
+                    <span key={z} className="rounded-md border border-blue-300 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                      ✓ {z}
+                    </span>
+                  )) : <span className="text-xs text-slate-400">No zones selected</span>}
+                </div>
+                <p className="mt-1 text-xs text-slate-400">Locked from Stage 1</p>
+              </div>
+            ) : (
+              <div ref={zoneRef} className="relative">
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => setZoneOpen((prev) => !prev)}
+                  className="flex w-full items-center justify-between rounded-lg border border-slate-300 bg-white px-3 py-2 text-left text-sm text-slate-800 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100"
+                >
+                  <span>{zoneLabel}</span>
+                  <span className="text-xs text-slate-500">▾</span>
+                </button>
+
+                {zoneOpen ? (
+                  <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-[1000] rounded-lg border border-slate-300 bg-white p-2 shadow-lg">
+                    {zoneOptions.length === 0 ? (
+                      <p className="px-2 py-1 text-xs text-slate-500">No zones found</p>
+                    ) : (
+                      <>
+                        <label className="mb-2 flex cursor-pointer items-center gap-2 rounded border-b border-slate-200 pb-2 px-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                          <input
+                            type="checkbox"
+                            checked={areAllZonesSelected}
+                            onChange={() => {
+                              if (areAllZonesSelected) {
+                                void onZoneChange([]);
+                              } else {
+                                void onZoneChange(zoneOptions.map((z) => z.value));
+                              }
+                            }}
+                          />
+                          <span>Select all</span>
+                        </label>
+                        <div className="flex flex-wrap gap-1">
+                          {zoneOptions.map((option) => {
+                            const checked = selectedZones.includes(option.value);
+                            return (
+                              <label
+                                key={option.value}
+                                className={`flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition-colors ${
+                                  checked
+                                    ? "border-blue-400 bg-blue-50 text-blue-700"
+                                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => {
+                                    const next = checked
+                                      ? selectedZones.filter((v) => v !== option.value)
+                                      : [...selectedZones, option.value];
+                                    void onZoneChange(next);
+                                  }}
+                                  className="hidden"
+                                />
+                                {checked && <span className="text-blue-500">✓</span>}
+                                <span>{option.label}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            )}
+            {isFirstStage && <p className="mt-1 text-xs text-slate-500">Select one or more zones using checkboxes.</p>}
+          </div>
+        </div>
+
+        {isFirstStage && (
+          <p className="mt-4 text-xs text-slate-600">Displayed zones: {displayedZones}</p>
+        )}
+        {loading ? <p className="mt-1 text-xs text-blue-600">Loading layers...</p> : null}
+
+        {/* Criteria */}
+        <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
+          <p className="mb-2 text-sm font-bold text-slate-900">Select criteria to proceed</p>
+          {criteriaOptions.length === 0 ? (
+            <p className="text-xs text-slate-400">No criteria defined for this stage.</p>
+          ) : (
+            <div className="space-y-2">
+              {criteriaOptions.map((item) => {
+                const checked = selectedDataUsed.includes(item);
+                return (
+                  <label key={item} className="flex cursor-pointer items-start gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => onToggleDataUsed(item)}
+                      className="mt-1"
+                    />
+                    <span>{item}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div className="mt-4 flex gap-2">
+            {stageIndex > 0 && (
               <button
                 type="button"
-                disabled={loading}
-                onClick={() => setZoneOpen((prev) => !prev)}
-                className="flex w-full items-center justify-between rounded-lg border border-slate-300 bg-white px-3 py-2 text-left text-sm text-slate-800 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100"
+                onClick={onPrevious}
+                className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
-                <span>{zoneLabel}</span>
-                <span className="text-xs text-slate-500">▾</span>
+                ← Prev
               </button>
+            )}
 
-              {zoneOpen ? (
-                <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-[1000] max-h-56 overflow-y-auto rounded-lg border border-slate-300 bg-white p-2 shadow-lg">
-                  {zoneOptions.length === 0 ? (
-                    <p className="px-2 py-1 text-xs text-slate-500">No zones found</p>
-                  ) : (
-                    <>
-                      <label className="mb-1 flex cursor-pointer items-center gap-2 rounded border-b border-slate-200 px-2 py-1 text-sm font-semibold text-slate-800 hover:bg-slate-50">
-                        <input
-                          type="checkbox"
-                          checked={areAllZonesSelected}
-                          onChange={() => {
-                            if (areAllZonesSelected) {
-                              void onZoneChange([]);
-                            } else {
-                              void onZoneChange(zoneOptions.map((z) => z.value));
-                            }
-                          }}
-                        />
-                        <span>Select all zones</span>
-                      </label>
-                      {zoneOptions.map((option) => {
-                        const checked = selectedZones.includes(option.value);
-                        return (
-                          <label
-                            key={option.value}
-                            className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm text-slate-700 hover:bg-slate-50"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() => {
-                                const next = checked
-                                  ? selectedZones.filter((v) => v !== option.value)
-                                  : [...selectedZones, option.value];
-                                void onZoneChange(next);
-                              }}
-                            />
-                            <span>{option.label}</span>
-                          </label>
-                        );
-                      })}
-                    </>
-                  )}
-                </div>
-              ) : null}
-            </div>
-            <p className="mt-1 text-xs text-slate-500">Select one or more zones using checkboxes.</p>
+            <button
+              type="button"
+              onClick={onProceed}
+              disabled={proceedDisabled}
+              className="flex-1 rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+            >
+              {isLastStage ? "Finish" : "Proceed"}
+            </button>
+
+            {!isLastStage && (
+              <button
+                type="button"
+                onClick={onNext}
+                disabled={!proceededOnce}
+                title={!proceededOnce ? "Click Proceed first" : "Next stage"}
+                className="flex-1 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                Next →
+              </button>
+            )}
           </div>
-        </div>
 
-        
-        <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
-          <p className="mb-2 text-sm font-bold text-slate-900">select criteria to proceed</p>
-          <div className="space-y-2">
-            {dataUsedOptions.map((item) => {
-              const checked = selectedDataUsed.includes(item);
-              return (
-                <label key={item} className="flex cursor-pointer items-start gap-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => onToggleDataUsed(item)}
-                    className="mt-1"
-                  />
-                  <span>{item}</span>
-                </label>
-              );
-            })}
-          </div>
+          {isLastStage && proceededOnce && (
+            <button
+              type="button"
+              onClick={onGeneratePdf}
+              className="mt-3 w-full rounded-lg bg-teal-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-teal-700"
+            >
+              ⬇ Generate Report
+            </button>
+          )}
         </div>
-
-        <p className="mt-4 text-xs text-slate-600">Displayed zones: {displayedZones}</p>
-        {loading ? <p className="mt-1 text-xs text-blue-600">Loading layers...</p> : null}
       </div>
-
-      <button
-        type="button"
-        onClick={onProceed}
-        disabled={proceedDisabled}
-        className="mt-3 w-full rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-      >
-        Proceed
-      </button>
     </section>
   );
 }

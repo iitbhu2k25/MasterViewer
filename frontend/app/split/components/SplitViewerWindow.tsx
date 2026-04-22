@@ -2,36 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import dynamic from "next/dynamic";
-import { BasemapType } from "../../(holistic-approach)/holistic/components/AdminMap";
-import { FeatureCollection } from "../../(holistic-approach)/holistic/types/location";
+import type { BasemapType, FeatureCollection } from "../../shared/types";
+// Re-exported so existing imports from this file continue to work
+export type { StickyNote, ViewerMessage } from "../../shared/types";
 
 const SplitMapViewer = dynamic(() => import("./SplitMapViewer"), { ssr: false });
 const CriteriaDataPanel = dynamic(() => import("./CriteriaDataPanel"), { ssr: false });
 import VirtualKeyboard from "./VirtualKeyboard";
-
-export type StickyNote = {
-  id: string;
-  author: string;
-  /** Side that created this note — used for permanent ownership lock */
-  ownerSide: string;
-  text: string;
-  color: string;
-  lat: number;
-  lng: number;
-  shape?: "sticky" | "rect" | "oval" | "rhombus" | "triangle" | "text";
-};
-
-export type ViewerMessage = {
-  id: string;
-  text: string;
-  fromSide: string;
-  fromTitle: string;
-  /** "all" = sent by main screen → everyone sees it; "main" = sent by other screen → only main sees it */
-  to: "all" | "main";
-  timestamp: number;
-  /** Present when the message is a note-placement notification — enables the Reveal button */
-  noteId?: string;
-};
 
 export type SplitViewerWindowProps = {
   side: "top" | "topSecondary" | "left" | "right" | "bottom";
@@ -62,6 +39,8 @@ export type SplitViewerWindowProps = {
   onRevealNote?: (noteId: string) => void;
   onHideNote?: (noteId: string) => void;
   onDeleteStickyNote?: (id: string) => void;
+  editingScreenNames?: boolean;
+  onScreenNameChange?: (name: string) => void;
 };
 
 const BEZEL_ACCENT = "#5f5099 ";
@@ -211,6 +190,8 @@ export default function SplitViewerWindow({
   onRevealNote,
   onHideNote,
   onDeleteStickyNote,
+  editingScreenNames = false,
+  onScreenNameChange,
 }: SplitViewerWindowProps) {
   const cfg = sideConfig[side];
   // Extract the rotation angle from the CSS string e.g. "rotate(-90deg)" → -90
@@ -235,6 +216,10 @@ export default function SplitViewerWindow({
   const [noteColor, setNoteColor] = useState(() => (SIDE_COLOR_PALETTES[side] ?? SIDE_COLOR_PALETTES.top)[0]);
   const [noteShape, setNoteShape] = useState<StickyNote['shape']>('sticky');
   const [stickyMode, setStickyMode] = useState(false);
+  const [localEditingTitle, setLocalEditingTitle] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const titleSpanRef = useRef<HTMLSpanElement>(null);
+  const titleKeyboardRef = useRef<HTMLDivElement>(null);
   const [showToolsMenu, setShowToolsMenu] = useState(false);
   const [activeSubMenu, setActiveSubMenu] = useState<'none' | 'colors' | 'shapes'>('none');
   const dragging = useRef(false);
@@ -279,11 +264,21 @@ export default function SplitViewerWindow({
           onOpenStickyEditor?.(null);
         }
       }
+
+      // 4. Title rename keyboard click outside — save (name already updated) and close
+      if (localEditingTitle) {
+        const outsideKeyboard = !titleKeyboardRef.current || !titleKeyboardRef.current.contains(target);
+        const outsideInput = !titleInputRef.current || !titleInputRef.current.contains(target);
+        const outsideSpan = !titleSpanRef.current || !titleSpanRef.current.contains(target);
+        if (outsideKeyboard && outsideInput && outsideSpan) {
+          setLocalEditingTitle(false);
+        }
+      }
     };
 
     window.addEventListener("pointerdown", handleClickOutside, { capture: true });
     return () => window.removeEventListener("pointerdown", handleClickOutside, { capture: true });
-  }, [showToolsMenu, showMsgKeyboard, editingStickyNoteId, onOpenStickyEditor]);
+  }, [showToolsMenu, showMsgKeyboard, editingStickyNoteId, onOpenStickyEditor, localEditingTitle]);
 
 
   useEffect(() => {
@@ -536,18 +531,51 @@ export default function SplitViewerWindow({
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
         >
-          <span
-            style={{
-              color: "#ffffff",
-              fontWeight: 800,
-              fontSize: "11px",
-              textTransform: "uppercase",
-              letterSpacing: "0.13em",
-              userSelect: "none",
-            }}
-          >
-            {title}
-          </span>
+          {(editingScreenNames || localEditingTitle) ? (
+            <input
+              ref={titleInputRef}
+              type="text"
+              value={title}
+              onChange={(e) => onScreenNameChange?.(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === "Escape") setLocalEditingTitle(false);
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onPointerMove={(e) => e.stopPropagation()}
+              onPointerUp={(e) => e.stopPropagation()}
+              style={{
+                color: "#ffffff",
+                fontWeight: 800,
+                fontSize: "11px",
+                textTransform: "uppercase",
+                letterSpacing: "0.13em",
+                background: "rgba(255,255,255,0.15)",
+                border: "1px solid rgba(255,255,255,0.4)",
+                borderRadius: 4,
+                padding: "1px 5px",
+                outline: "none",
+                width: 90,
+              }}
+            />
+          ) : (
+            <span
+              ref={titleSpanRef}
+              title="Click to rename"
+              onClick={() => setLocalEditingTitle(true)}
+              onPointerDown={(e) => e.stopPropagation()}
+              style={{
+                color: "#ffffff",
+                fontWeight: 800,
+                fontSize: "11px",
+                textTransform: "uppercase",
+                letterSpacing: "0.13em",
+                userSelect: "none",
+                cursor: "text",
+              }}
+            >
+              {title}
+            </span>
+          )}
           <button
             type="button"
             onPointerDown={(event) => event.stopPropagation()}
@@ -772,6 +800,21 @@ export default function SplitViewerWindow({
                 <VirtualKeyboard
                   value={editedNote.text}
                   onChange={(val) => onUpdateStickyNote(editingStickyNoteId, val)}
+                />
+              </div>
+            ) : null}
+            {/* Title rename keyboard — all screens */}
+            {localEditingTitle ? (
+              <div ref={titleKeyboardRef} className="absolute inset-0 pointer-events-none z-[9999]" style={{ transform: "none" }}>
+                <VirtualKeyboard
+                  value={title}
+                  onChange={(val) => {
+                    if (val.endsWith("\n")) {
+                      setLocalEditingTitle(false);
+                    } else {
+                      onScreenNameChange?.(val);
+                    }
+                  }}
                 />
               </div>
             ) : null}

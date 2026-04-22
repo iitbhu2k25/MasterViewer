@@ -1,8 +1,4 @@
 "use client";
 
-import { useHolisticLocation } from "./useHolisticLocation";
-
-export const useLocationSelection = () => {
-  return useHolisticLocation();
-};
-
+// Re-exported from shared for backward compatibility
+export { useLocationSelection } from "../../../shared/hooks/useLocationSelection";

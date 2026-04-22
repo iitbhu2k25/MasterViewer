@@ -2,14 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { GeoJSON, MapContainer, TileLayer, useMap, useMapEvents } from "react-leaflet";
-import {
-  BasemapType,
-  BASEMAP_TILES,
-} from "../../(holistic-approach)/holistic/components/AdminMap";
-import { FeatureCollection } from "../../(holistic-approach)/holistic/types/location";
-import { StickyNote } from "./SplitViewerWindow";
-import DrainWFSLayer from "./DrainWFSLayer";
-import DemSlopeRasterLayer from "./DemSlopeRasterLayer";
+import type { BasemapType, FeatureCollection, StickyNote } from "../../shared/types";
+import { BASEMAP_TILES } from "../../shared/types";
+import DrainWFSLayer from "../../shared/map-layers/DrainWFSLayer";
+import DemSlopeRasterLayer from "../../shared/map-layers/DemSlopeRasterLayer";
+import FlowDirectionRasterLayer from "../../shared/map-layers/FlowDirectionRasterLayer";
 
 /* Syncs this mini-map's view to the master map's center & zoom */
 function MapViewSync({
@@ -546,19 +543,12 @@ export default function SplitMapViewer({
       {/* Slope/DEM raster with zonal clipping and high-variance coloring */}
       {activeCriteria.includes("DEM, slope maps") && (
         <>
-          <DemSlopeRasterLayer 
-            enabled={true} 
-            selectedZones={selectedZones} 
-            clipApiBase={clipApiBase} 
-            dataType="dem" 
-          />
-          <DemSlopeRasterLayer 
-            enabled={true} 
-            selectedZones={selectedZones} 
-            clipApiBase={clipApiBase} 
-            dataType="slope" 
-          />
+          <DemSlopeRasterLayer enabled={true} selectedZones={selectedZones} clipApiBase={clipApiBase} dataType="dem" />
+          <DemSlopeRasterLayer enabled={true} selectedZones={selectedZones} clipApiBase={clipApiBase} dataType="slope" />
         </>
+      )}
+      {activeCriteria.includes("Surface flow direction & accumulation maps") && (
+        <FlowDirectionRasterLayer enabled={true} selectedZones={selectedZones} clipApiBase={clipApiBase} dataType="direction" />
       )}
 
       <MapClickHandler

@@ -3,10 +3,10 @@
 import "leaflet/dist/leaflet.css";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocationSelection } from "../(holistic-approach)/holistic/hooks/useLocationSelection";
-import { BasemapType } from "../(holistic-approach)/holistic/components/AdminMap";
+import { useLocationSelection } from "../shared/hooks/useLocationSelection";
+import type { BasemapType, StickyNote, ViewerMessage } from "../shared/types";
 import SplitMasterPanel from "./components/SplitMasterPanel";
-import SplitViewerWindow, { type StickyNote, type ViewerMessage } from "./components/SplitViewerWindow";
+import SplitViewerWindow from "./components/SplitViewerWindow";
 
 const AdminMap = dynamic(
   () => import("../(holistic-approach)/holistic/components/AdminMap"),
@@ -44,6 +44,8 @@ export type SplitSession = {
   stickyNotes: StickyNote[];
   /** all messages sent/received during this session */
   messages: ViewerMessage[];
+  /** custom screen names keyed by side */
+  screenNames?: Record<string, string>;
 };
 
 const SESSIONS_KEY = "split_sessions";
@@ -96,7 +98,14 @@ export default function SplitModule() {
   const [masterNoteShape, setMasterNoteShape] = useState<StickyNote["shape"]>("sticky");
   const [viewerMessages, setViewerMessages] = useState<ViewerMessage[]>([]);
   const [aviralCriteria, setAviralCriteria] = useState<string[]>([]);
-  /** noteId → viewer sides that have clicked "Reveal" for that note */
+  const [screenNames, setScreenNames] = useState<Record<string, string>>({
+    top: "Screen 1",
+    topSecondary: "Screen 2",
+    left: "Screen 3",
+    right: "Screen 4",
+    bottom: "Main Screen",
+  });
+/** noteId → viewer sides that have clicked "Reveal" for that note */
   const [revealedNotes, setRevealedNotes] = useState<Record<string, string[]>>({});
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -201,7 +210,7 @@ export default function SplitModule() {
 
   // Only save session when there's actual activity (marks, zones, or criteria)
   function hasActivity(s: SplitSession) {
-    return s.marks.length > 0 || s.zones.length > 0 || s.criteria.length > 0;
+    return s.marks.length > 0 || s.stickyNotes.length > 0;
   }
 
   function persistIfActive(s: SplitSession) {
@@ -236,6 +245,13 @@ export default function SplitModule() {
     sessionRef.current = { ...sessionRef.current, stickyNotes, lastActivityAt: Date.now() };
     persistIfActive(sessionRef.current);
   }, [stickyNotes]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep screenNames in session
+  useEffect(() => {
+    if (!mountedRef.current) return;
+    sessionRef.current = { ...sessionRef.current, screenNames, lastActivityAt: Date.now() };
+    persistIfActive(sessionRef.current);
+  }, [screenNames]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep messages snapshot in session
   useEffect(() => {
@@ -313,6 +329,7 @@ export default function SplitModule() {
         if (s.activeCriteria?.length) setAviralCriteria(s.activeCriteria);
         if (s.basemap) setBasemap(s.basemap as BasemapType);
         if (s.messages?.length) setViewerMessages(s.messages);
+        if (s.screenNames) setScreenNames(s.screenNames);
         // Show screen viewers if any viewer-side marks exist
         const hasViewerMarks = s.marks?.some(m => m.viewerSide !== "main");
         if (hasViewerMarks) setShowViewers(true);
@@ -355,11 +372,11 @@ export default function SplitModule() {
     initialOffset?: number;
     isMainScreen: boolean;
   }[] = [
-    { side: "top", title: "Screen 1", subtitle: "", initialOffset: -topPairOffset, isMainScreen: false },
-    { side: "topSecondary", title: "Screen 2", subtitle: "", initialOffset: topPairOffset, isMainScreen: false },
-    { side: "left", title: "Screen 3", subtitle: "", initialOffset: -30, isMainScreen: false },
-    { side: "right", title: "Screen 4", subtitle: "", initialOffset: 30, isMainScreen: false },
-    { side: "bottom", title: "Main Screen", subtitle: "", initialOffset: 0, isMainScreen: true },
+    { side: "top", title: screenNames.top, subtitle: "", initialOffset: -topPairOffset, isMainScreen: false },
+    { side: "topSecondary", title: screenNames.topSecondary, subtitle: "", initialOffset: topPairOffset, isMainScreen: false },
+    { side: "left", title: screenNames.left, subtitle: "", initialOffset: -30, isMainScreen: false },
+    { side: "right", title: screenNames.right, subtitle: "", initialOffset: 30, isMainScreen: false },
+    { side: "bottom", title: screenNames.bottom, subtitle: "", initialOffset: 0, isMainScreen: true },
   ];
 
   return (
@@ -410,6 +427,7 @@ export default function SplitModule() {
           stickyMode={masterStickyMode}
           onStickyMapClick={handleMasterMapClick}
           activeCriteria={aviralCriteria}
+          screenNames={screenNames}
         />
       </div>
 
@@ -418,6 +436,7 @@ export default function SplitModule() {
           key={viewer.side}
           side={viewer.side}
           title={viewer.title}
+          onScreenNameChange={(name) => setScreenNames((prev) => ({ ...prev, [viewer.side]: name }))}
           subtitle={viewer.subtitle}
           visible={showViewers}
           basemap={basemap}
@@ -433,7 +452,7 @@ export default function SplitModule() {
           stickyNotes={stickyNotes}
           onCreateStickyNote={(note) => {
             const id = `${Date.now()}-${Math.random()}`;
-            setStickyNotes((prev) => [...prev, { id, ownerSide: viewer.side, ...note }]);
+            setStickyNotes((prev) => [...prev, { id, ownerSide: viewer.side as string, ...note } as StickyNote]);
             setActiveEditors((prev) => ({ ...prev, [id]: viewer.side }));
             const shapeLabel = note.shape === "text" ? "text label"
               : note.shape === "sticky" ? "sticky note"

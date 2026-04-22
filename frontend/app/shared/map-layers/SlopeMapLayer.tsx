@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMap } from "react-leaflet";
-import type { FeatureCollection } from "../../(holistic-approach)/holistic/types/location";
+import type { FeatureCollection } from "../types";
 
 const GEOSERVER_WMS = "http://localhost:9090/geoserver/dss_raster/wms";
 const SLOPE_LAYER = "dss_raster:slope_Slope_aviral";
@@ -32,15 +32,9 @@ function getGeoBounds(features: any[]) {
   return { minLng, minLat, maxLng, maxLat };
 }
 
-/**
- * Renders the slope WMS raster ONLY inside the selected zone polygons.
- * Uses an SVG overlay with a clipPath built from the zone polygon coordinates
- * so no blur-mask covers the rest of the map.
- */
 function SlopeOverlay({ zoneFeatures }: { zoneFeatures: any[] }) {
   const map = useMap();
   const [, forceUpdate] = useState(0);
-  // Stable clip-path id per component instance (avoids conflicts with multiple maps)
   const clipIdRef = useRef(`slope-clip-${Math.random().toString(36).slice(2, 8)}`);
 
   useEffect(() => {
@@ -54,8 +48,6 @@ function SlopeOverlay({ zoneFeatures }: { zoneFeatures: any[] }) {
   if (!zoneFeatures.length || bounds.minLng === Infinity) return null;
 
   const mapSize = map.getSize();
-
-  // Map the geographic bbox to container pixel coordinates
   const tl = map.latLngToContainerPoint([bounds.maxLat, bounds.minLng]);
   const br = map.latLngToContainerPoint([bounds.minLat, bounds.maxLng]);
   const imgX = tl.x;
@@ -63,10 +55,8 @@ function SlopeOverlay({ zoneFeatures }: { zoneFeatures: any[] }) {
   const imgW = br.x - tl.x;
   const imgH = br.y - tl.y;
 
-  // Bail out if the zone is completely off-screen or inverted
   if (imgW <= 0 || imgH <= 0) return null;
 
-  // WMS GetMap request — pixel size matches the current view for crisp rendering
   const pixW = Math.max(64, Math.round(imgW));
   const pixH = Math.max(64, Math.round(imgH));
   const wmsUrl =
@@ -77,7 +67,6 @@ function SlopeOverlay({ zoneFeatures }: { zoneFeatures: any[] }) {
     `&WIDTH=${pixW}&HEIGHT=${pixH}` +
     `&FORMAT=image/png&TRANSPARENT=true`;
 
-  // Build the SVG <path> for the clip region from zone polygon coordinates
   const pathParts: string[] = [];
   for (const f of zoneFeatures) {
     const g = f?.geometry;
@@ -101,32 +90,16 @@ function SlopeOverlay({ zoneFeatures }: { zoneFeatures: any[] }) {
   const clipId = clipIdRef.current;
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        inset: 0,
-        zIndex: 300,
-        pointerEvents: "none",
-      }}
-    >
-      <svg
-        width={mapSize.x}
-        height={mapSize.y}
-        style={{ position: "absolute", top: 0, left: 0 }}
-      >
+    <div style={{ position: "absolute", inset: 0, zIndex: 300, pointerEvents: "none" }}>
+      <svg width={mapSize.x} height={mapSize.y} style={{ position: "absolute", top: 0, left: 0 }}>
         <defs>
-          {/* Clip path shaped exactly to the selected zone polygons */}
           <clipPath id={clipId}>
             <path d={pathParts.join(" ")} fillRule="evenodd" />
           </clipPath>
         </defs>
-        {/* WMS image clipped to zones — full color, no mask on surrounding map */}
         <image
           href={wmsUrl}
-          x={imgX}
-          y={imgY}
-          width={imgW}
-          height={imgH}
+          x={imgX} y={imgY} width={imgW} height={imgH}
           clipPath={`url(#${clipId})`}
           preserveAspectRatio="none"
           style={{ opacity: 0.9 }}

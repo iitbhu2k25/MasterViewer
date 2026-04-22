@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import { GeoJSON, MapContainer, TileLayer, useMap, useMapEvents, WMSTileLayer, ZoomControl } from "react-leaflet";
-import { FeatureCollection } from "../types/location";
-import type { StickyNote } from "../../../split/components/SplitViewerWindow";
-import DrainWFSLayer from "../../../split/components/DrainWFSLayer";
-import DemSlopeRasterLayer from "../../../split/components/DemSlopeRasterLayer";
+import type { FeatureCollection, StickyNote, BasemapType } from "../../../shared/types";
+import { BASEMAP_TILES } from "../../../shared/types";
+import DrainWFSLayer from "../../../shared/map-layers/DrainWFSLayer";
+import DemSlopeRasterLayer from "../../../shared/map-layers/DemSlopeRasterLayer";
+import FlowDirectionRasterLayer from "../../../shared/map-layers/FlowDirectionRasterLayer";
+import NirmalGwqLayer from "../../../shared/map-layers/NirmalGwqLayer";
+import NirmalRwqLayer from "../../../shared/map-layers/NirmalRwqLayer";
+import type { RwqSeason } from "../../../shared/map-layers/NirmalRwqLayer";
+import StpPointLayer from "../../../shared/map-layers/StpPointLayer";
 
 /* ── Forces Leaflet to re-measure the container after layout settles ── */
 function MapResizer() {
@@ -27,26 +32,9 @@ function MapResizer() {
   return null;
 }
 
-export type BasemapType = "terrain" | "satellite" | "streets" | "dark";
-
-export const BASEMAP_TILES: Record<BasemapType, { url: string; attribution: string }> = {
-  terrain: {
-    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
-    attribution: "Tiles &copy; Esri",
-  },
-  satellite: {
-    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    attribution: "Tiles &copy; Esri",
-  },
-  streets: {
-    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  },
-  dark: {
-    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-    attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
-  },
-};
+// Re-exported from shared so existing imports of BasemapType/BASEMAP_TILES from this file still work
+export type { BasemapType } from "../../../shared/types";
+export { BASEMAP_TILES } from "../../../shared/types";
 
 const INDIA_CENTER: [number, number] = [22.5937, 78.9629];
 const INDIA_ZOOM = 5;
@@ -253,6 +241,7 @@ function StickyNotesOverlay({
   onOpenStickyEditor,
   onDeleteStickyNote,
   viewerSide,
+  screenNames,
 }: {
   stickyNotes: StickyNote[];
   editingStickyNoteId?: string | null;
@@ -260,16 +249,18 @@ function StickyNotesOverlay({
   onOpenStickyEditor?: (id: string | null) => void;
   onDeleteStickyNote?: (id: string) => void;
   viewerSide?: string;
+  screenNames?: Record<string, string>;
 }) {
   const map = useMap();
   const [version, setVersion] = useState(0);
 
   const sideToLabel: Record<string, string> = {
-    top: "Screen 1",
-    topSecondary: "Screen 2",
-    left: "Screen 3",
-    right: "Screen 4",
-    bottom: "Main Screen",
+    top: screenNames?.top ?? "Screen 1",
+    topSecondary: screenNames?.topSecondary ?? "Screen 2",
+    left: screenNames?.left ?? "Screen 3",
+    right: screenNames?.right ?? "Screen 4",
+    bottom: screenNames?.bottom ?? "Main Screen",
+    main: screenNames?.bottom ?? "Main Screen",
   };
 
   useEffect(() => {
@@ -522,6 +513,9 @@ type Props = {
   stickyMode?: boolean;
   onStickyMapClick?: (lat: number, lng: number) => void;
   activeCriteria?: string[];
+  rwqSeason?: RwqSeason;
+  onStpDataLoaded?: (stps: any[]) => void;
+  screenNames?: Record<string, string>;
 };
 
 export default function AdminMap({
@@ -550,6 +544,9 @@ export default function AdminMap({
   stickyMode = false,
   onStickyMapClick,
   activeCriteria = [],
+  rwqSeason = "monsoon",
+  onStpDataLoaded,
+  screenNames,
 }: Props) {
   const tileConfig = basemap ? BASEMAP_TILES[basemap] : BASEMAP_TILES.streets;
 
@@ -791,21 +788,23 @@ export default function AdminMap({
         {activeCriteria.includes("Tributary & drain flow") && (
           <DrainWFSLayer areaGeojson={areaGeojson} selectedZones={selectedZones} />
         )}
+        {activeCriteria.includes("Groundwater quality") && (
+          <NirmalGwqLayer enabled={true} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+        )}
+        {activeCriteria.includes("River water quality") && (
+          <NirmalRwqLayer enabled={true} selectedZones={selectedZones} clipApiBase={clipApiBase} season={rwqSeason} />
+        )}
+        {activeCriteria.includes("STP details") && (
+          <StpPointLayer enabled={true} selectedZones={selectedZones} apiBase={clipApiBase} onDataLoaded={onStpDataLoaded} />
+        )}
         {activeCriteria.includes("DEM, slope maps") && (
           <>
-            <DemSlopeRasterLayer 
-              enabled={true} 
-              selectedZones={selectedZones} 
-              clipApiBase={clipApiBase} 
-              dataType="dem" 
-            />
-            <DemSlopeRasterLayer 
-              enabled={true} 
-              selectedZones={selectedZones} 
-              clipApiBase={clipApiBase} 
-              dataType="slope" 
-            />
+            <DemSlopeRasterLayer enabled={true} selectedZones={selectedZones} clipApiBase={clipApiBase} dataType="dem" />
+            <DemSlopeRasterLayer enabled={true} selectedZones={selectedZones} clipApiBase={clipApiBase} dataType="slope" />
           </>
+        )}
+        {activeCriteria.includes("Surface flow direction & accumulation maps") && (
+          <FlowDirectionRasterLayer enabled={true} selectedZones={selectedZones} clipApiBase={clipApiBase} dataType="direction" />
         )}
         <RainfallRasterLayer enabled={showRainfallLayer} selectedZones={selectedZones} rainfallYear={rainfallYear} clipApiBase={clipApiBase} />
         {interactive ? <ZoomControl position="topright" /> : null}
@@ -829,6 +828,7 @@ export default function AdminMap({
           onOpenStickyEditor={onOpenStickyEditor}
           onDeleteStickyNote={onDeleteStickyNote}
           viewerSide={viewerSide}
+          screenNames={screenNames}
         />
         <StickyMapClickHandler enabled={stickyMode} onMapClick={onStickyMapClick} />
         <InvalidateMapSize />

@@ -5,7 +5,7 @@ import {
   CartesianGrid, Line, LineChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { DRAIN_CONFIGS } from "./DrainWFSLayer";
+import { DRAIN_CONFIGS } from "../../shared/map-layers/DrainWFSLayer";
 
 const ZONE_PALETTE = ["#2563eb","#059669","#dc2626","#d97706","#7c3aed","#db2777","#0284c7","#0f766e"];
 

@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BasemapType } from "../../(holistic-approach)/holistic/components/AdminMap";
-import type { StickyNote } from "./SplitViewerWindow";
+import type { BasemapType, StickyNote } from "../../shared/types";
 
 type SplitMasterPanelProps = {
   showViewers: boolean;
@@ -186,7 +185,7 @@ export default function SplitMasterPanel({
       ref={panelRef}
       className="split-master-panel pointer-events-auto absolute bottom-4 left-1/2 z-[940]"
       style={{
-        width: collapsed ? "auto" : "min(500px, 66vw)",
+        width: collapsed ? "auto" : "min(460px, 62vw)",
         transform: `translateX(calc(-50% + ${offsetX}px))`,
         transition: "width 0.4s ease",
         cursor: mouseDragging.current ? "grabbing" : "grab",
@@ -232,7 +231,7 @@ export default function SplitMasterPanel({
       <div
         className="overflow-hidden transition-all duration-500 ease-in-out"
         style={{
-          maxHeight: collapsed ? "0px" : "400px",
+          maxHeight: collapsed ? "0px" : "600px",
           opacity: collapsed ? 0 : 1,
           background: "rgba(12,17,27,0.93)",
           border: `1.5px solid ${ACCENT}50`,
@@ -249,7 +248,7 @@ export default function SplitMasterPanel({
         }}
       >
         {/* Right column — Zone selector + Modules + Criteria, absolutely positioned */}
-        <div className="absolute top-2.5 right-4 flex flex-col items-end gap-2" style={{ maxWidth: activeModule === "Aviral Ganga" ? 340 : 180 }}>
+        <div className="absolute top-0.5 right-4 flex flex-col items-end gap-2" style={{ maxWidth: activeModule === "Aviral Ganga" ? 260 : 140, maxHeight: 560, overflowY: "auto" }}>
 
           {/* ── Zone selector ── */}
           <div className="w-full" ref={zoneDropdownRef}>
@@ -275,34 +274,39 @@ export default function SplitMasterPanel({
                 borderRadius: 7, overflow: "hidden",
               }}>
                 {/* Select all row */}
-                <label style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderBottom: "1px solid rgba(96,165,250,0.15)", cursor: "pointer" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 5, padding: "2px 8px", borderBottom: "1px solid rgba(96,165,250,0.15)", cursor: "pointer" }}>
                   <input
                     type="checkbox"
                     checked={allZonesSelected}
                     onChange={() => allZonesSelected ? onClearZones?.() : onSelectAllZones?.()}
-                    style={{ accentColor: "#60a5fa", width: 11, height: 11 }}
+                    style={{ accentColor: "#60a5fa", width: 10, height: 10 }}
                   />
-                  <span style={{ fontSize: 10, fontWeight: 700, color: "#93c5fd" }}>Select all zones</span>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: "#93c5fd" }}>Select all</span>
                 </label>
-                {/* Scrollable zone list */}
-                <div style={{ maxHeight: 110, overflowY: "auto" }}>
-                  {zones.map((zone) => (
-                    <label key={zone} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", cursor: "pointer" }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedZones.includes(zone)}
-                        onChange={() => onZoneToggle?.(zone)}
-                        style={{ accentColor: "#60a5fa", width: 11, height: 11 }}
-                      />
-                      <span style={{ fontSize: 10, color: "#cbd5e1" }}>{zone}</span>
-                    </label>
-                  ))}
+                {/* Horizontal zone chips */}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 3, padding: "4px 8px" }}>
+                  {zones.map((zone) => {
+                    const checked = selectedZones.includes(zone);
+                    return (
+                      <button
+                        key={zone}
+                        type="button"
+                        onClick={() => onZoneToggle?.(zone)}
+                        style={{
+                          width: 28, height: 22, display: "flex", alignItems: "center", justifyContent: "center",
+                          borderRadius: 6, fontSize: 10, fontWeight: 600, flexShrink: 0,
+                          cursor: "pointer", border: "1px solid",
+                          borderColor: checked ? "rgba(96,165,250,0.6)" : "rgba(148,163,184,0.25)",
+                          background: checked ? "rgba(96,165,250,0.15)" : "rgba(255,255,255,0.05)",
+                          color: checked ? "#93c5fd" : "#94a3b8",
+                          transition: "all 0.15s",
+                        }}
+                      >
+                        {zone}
+                      </button>
+                    );
+                  })}
                 </div>
-                {selectedZones.length > 0 && (
-                  <div style={{ padding: "3px 8px 5px", borderTop: "1px solid rgba(96,165,250,0.15)" }}>
-                    <span style={{ fontSize: 9, color: "#64748b" }}>Displayed zones: {selectedZones.length}</span>
-                  </div>
-                )}
               </div>
             )}
           </div>
@@ -312,16 +316,16 @@ export default function SplitMasterPanel({
 
             {/* Criteria — left of modules, only when Aviral Ganga active */}
             {activeModule === "Aviral Ganga" && (
-              <div style={{ flexShrink: 0 }}>
+              <div style={{ flexShrink: 1, minWidth: 0, maxWidth: 130 }}>
                 <p style={{ margin: "0 0 4px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#60a5fa99" }}>Criteria</p>
                 {selectedZones.length === 0 ? (
-                  <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(96,165,250,0.15)", borderRadius: 7, padding: "7px 10px", display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ fontSize: 9, color: "#64748b", fontStyle: "italic", whiteSpace: "nowrap" }}>Select zones first</span>
+                  <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(96,165,250,0.15)", borderRadius: 7, padding: "7px 10px" }}>
+                    <span style={{ fontSize: 9, color: "#64748b", fontStyle: "italic" }}>Select zones first</span>
                   </div>
                 ) : (
-                  <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(96,165,250,0.2)", borderRadius: 7, padding: "5px 8px", display: "flex", flexDirection: "column", gap: 4 }}>
+                  <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(96,165,250,0.2)", borderRadius: 7, padding: "3px 5px", display: "flex", flexDirection: "column", gap: 2 }}>
                     {AVIRAL_CRITERIA.map((criterion) => (
-                      <label key={criterion} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", whiteSpace: "nowrap" }}>
+                      <label key={criterion} style={{ display: "flex", alignItems: "flex-start", gap: 6, cursor: "pointer" }}>
                         <input
                           type="checkbox"
                           checked={aviralCriteria.includes(criterion)}
@@ -331,9 +335,9 @@ export default function SplitMasterPanel({
                               : [...aviralCriteria, criterion];
                             onAviralCriteriaChange?.(next);
                           }}
-                          style={{ accentColor: "#60a5fa", width: 11, height: 11, flexShrink: 0 }}
+                          style={{ accentColor: "#60a5fa", width: 10, height: 10, flexShrink: 0, marginTop: 1 }}
                         />
-                        <span style={{ fontSize: 10, color: "#cbd5e1" }}>{criterion}</span>
+                        <span style={{ fontSize: 9, color: "#cbd5e1", lineHeight: 1.3 }}>{criterion}</span>
                       </label>
                     ))}
                   </div>
@@ -364,11 +368,11 @@ export default function SplitMasterPanel({
           </div>
         </div>
 
+        {/* Left content — padded right to stay clear of the absolute right column */}
+        <div style={{ paddingRight: activeModule === "Aviral Ganga" ? 270 : 150 }}>
+
         {/* Row 1: Show/Hide screens — compact, no height inflation */}
         <div className="mb-2 flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400 text-sm font-black text-white shadow-lg shadow-blue-500/30">
-            S
-          </div>
           <button
             type="button"
             onClick={onToggleViewers}
@@ -501,8 +505,8 @@ export default function SplitMasterPanel({
                   width: "fit-content",
                 }}
               >
-                {/* Icon row: sticky | text | shapes */}
-                <div style={{ display: "flex", gap: 6 }}>
+                {/* Icon row: sticky | text | shapes | edit screen names */}
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   <button
                     type="button"
                     title="Sticky Note"
@@ -560,6 +564,7 @@ export default function SplitMasterPanel({
                       <polygon points="13,18 22,22 18,13"/>
                     </svg>
                   </button>
+
                 </div>
 
                 {/* Color swatches for sticky note */}
@@ -623,6 +628,8 @@ export default function SplitMasterPanel({
               </div>
             </div>
           ) : null}
+        </div>
+        {/* end left content wrapper */}
         </div>
       </div>
     </div>
