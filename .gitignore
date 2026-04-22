@@ -13,8 +13,12 @@
 /backend/.pytest_cache/
 /backend/media/
 
-/fast_api/media/
-/fast_api/.fastmdb.env/
+fast_backend/media/
+fast_backend/app/static
+fast_backend/temp
+fast_backend/media
+fast_backend/media.zip
+fast_backend/.fastmdb.env/
 
 # Docker related
 docker-compose.override.yml
