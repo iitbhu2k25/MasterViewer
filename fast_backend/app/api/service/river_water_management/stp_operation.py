@@ -27,106 +27,19 @@ import numpy as np
 import pandas as pd
 from rasterstats import zonal_stats
 from rasterio.enums import Resampling
-from sqlalchemy.orm import Session
-from rasterio.features import rasterize
+from pyproj import Transformer
 import pandas as pd
 from rasterstats import zonal_stats
-from app.api.schema.stp_schema import  STPCatchmentOutput, STPCategory, STPsuitabilityInput
+from rasterio.features import shapes
+from app.api.schema.stp_schema import  STP_suitability_Area, STPCatchmentOutput, STPCategory, STPsuitabilityInput
 from scipy.ndimage import label
 from app.utils.name import Unique_name
 from shapely.ops import unary_union
 from app.conf.redis.redis_async_manager import async_redis_manager
+from shapely.geometry import shape, LineString, Point
+from app.api.exception.exceptions import CustomException
 
 geo=Geoserver()
-
-# class VectorProcess(GeoConfig):
-#     def __init__(self):
-#         super().__init__()
-#         self.village = self._force_to_epsg(self.villages_shapefile)
-#         self.basin = self._force_to_epsg(self.basin_shapefile)
-#         self.catchment = self._force_to_epsg(self.cachement_shapefile)
-#         self.drain_cachement= self._force_to_epsg(self.drain_cachement_shapefile)
-#         self.town=self._force_to_epsg(self.town_shapefile)
-#         self.TEMP_DIR = Settings().TEMP_DIR
-        
-#     def _force_to_epsg(self, gdf: str, epsg: str = "EPSG:32644") -> gpd.GeoDataFrame:
-#         gdf=gpd.read_file(gdf)
-#         if gdf.crs is None:
-#             gdf.set_crs(epsg, inplace=True)
-#             return gdf
-#         return gdf.to_crs(epsg)
-    
-#     def get_village(self,clip:List[int]=None):
-#         return self.village[self.village['ID'].isin(clip)]
-    
-#     def get_sub_village(self,clip:List[int]=None):
-#         return self.village[self.village['subdis_cod'].isin(clip)]
-    
-#     def get_town(self,clip:List[int]=None):
-#         town_vector = self.town[self.town['ID'].isin(clip)].copy()
-#         if town_vector.empty:
-#             raise ValueError("No town polygon found for the provided clip ID(s)")
-#         buffer_map = {1: 35000, 2: 30000, 3: 25000, 4: 20000, 5: 10000}
-#         town_vector['buffer'] = town_vector['class'].map(buffer_map).fillna(5000)
-#         town_vector['buffered'] = town_vector.geometry.buffer(town_vector['buffer'])
-#         town_buffer = unary_union(town_vector['buffered'].tolist())
-#         town_buffer = town_buffer.buffer(0)
-#         if town_buffer.is_empty:
-#             raise ValueError("Final buffer is empty")
-#         return gpd.GeoDataFrame(geometry=[town_buffer], crs=self.town.crs)
-        
-#     def get_drain(self,clip:List[int]=None):
-#         drain_vector = self.drain_cachement[self.drain_cachement['Drain_No'].isin(clip)].copy()
-#         if drain_vector.empty:
-#             raise ValueError("No town polygon found for the provided clip ID(s)")
-#         buffer_map = {1: 35000, 2: 30000, 3: 25000, 4: 20000, 5: 10000}
-#         drain_vector['buffer'] =drain_vector['class'].map(buffer_map).fillna(5000)
-#         town_poly = drain_vector.iloc[0].geometry
-#         cls = int(drain_vector.iloc[0]['class'])
-#         buf = buffer_map.get(cls, 5000)
-#         return town_poly.buffer(buf)
-        
-#     def get_town_village(self,clip:List[int]=None):
-#         town_buff = self.get_town(clip)
-#         village = self.village.to_crs(town_buff.crs)
-#         village['geometry'] = village['geometry'].buffer(0)
-#         geom = town_buff.geometry.iloc[0]   
-#         resp = village[village.intersects(geom)].copy()
-#         return resp
-    
-#     def get_town_buffer(self,clip:List[int]=None):
-#         buffered_geom = self.get_town(clip)
-#         buffered_gdf = gpd.GeoDataFrame(geometry=[buffered_geom], crs="EPSG:32644")
-#         if len(buffered_gdf) > 1:
-#             union_geom = buffered_gdf.geometry.union_all()
-#             buffered_gdf = gpd.GeoDataFrame(geometry=[union_geom], crs=buffered_gdf.crs)
-#         return buffered_gdf
-    
-#     def get_drain_buffer(self,clip:List[int]=None):
-#         buffered_geom = self.get_drain(clip)
-#         buffered_gdf = gpd.GeoDataFrame(geometry=[buffered_geom], crs="EPSG:32644")
-#         if len(buffered_gdf) > 1:
-#             union_geom = buffered_gdf.geometry.union_all()
-#             buffered_gdf = gpd.GeoDataFrame(geometry=[union_geom], crs=buffered_gdf.crs)
-#         return buffered_gdf
-            
-#     def get_basin(self):
-#         return self.basin
-#     async def _temporory_vector(self,vector_temp_file:gpd.GeoDataFrame):
-#         random_name = f"{uuid.uuid4().hex}"
-#         unique_village_zip = f"catchment_{random_name}.zip"
-#         output_zip_path = self.TEMP_DIR+"/"+ unique_village_zip
-#         with tempfile.TemporaryDirectory() as temp_dir:
-#             temp_shp = Path(temp_dir) / f"catchment_{random_name}.shp"
-#             vector_temp_file.to_file(temp_shp, driver='ESRI Shapefile', engine='fiona')
-#             with zipfile.ZipFile(output_zip_path, 'w') as zipf:
-#                 for file in temp_shp.parent.glob(f"catchment_{random_name}.*"):
-#                     zipf.write(file, file.name)
-
-#         name_only = os.path.splitext(os.path.basename(output_zip_path))[0]
-#         await geo.upload_vector("vector_work",str(output_zip_path),name_only)
-#         return name_only
-    
 
 class RasterProcess:    
     def __init__(self, config: GeoConfig = GeoConfig()):
@@ -709,15 +622,164 @@ class RasterProcess:
         await geo.upload_vector("vector_work",str(output_zip_path),name_only)
         return name_only
 
- 
-class STPsuitabilityMapper:
+class STP_Area:
+    def __init__(self):
+        self.SUITABILITY_THRESHOLD = 0.417
+        self.elivation_path=Settings().elivation_path
+        self.TEMP_DIR=Settings().TEMP_DIR
+
+    async def _temporory_vector(self,vector_temp_file:gpd.GeoDataFrame,name:str):
+        unique_village_zip = f"{name}.zip"
+        output_zip_path = self.TEMP_DIR+"/"+ unique_village_zip
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_shp = Path(temp_dir) / f"{name}.shp"
+            vector_temp_file.to_file(temp_shp, driver='ESRI Shapefile', engine='fiona')
+            with zipfile.ZipFile(output_zip_path, 'w') as zipf:
+                for file in temp_shp.parent.glob(f"{name}.*"):
+                    zipf.write(file, file.name)
+
+            name_only = os.path.splitext(os.path.basename(output_zip_path))[0]
+            await Geoserver().upload_vector("vector_work",output_zip_path,name_only)
+        return name_only
+    
+    def _centroid_location(self,location:list):
+        lon_sum = 0
+        lat_sum = 0
+
+        for lat, lon in location:
+            lat_sum += lat
+            lon_sum += lon
+
+        n = len(location)
+        centroid_lon = lon_sum / n
+        centroid_lat = lat_sum / n
+
+        return centroid_lon, centroid_lat
+
+    async def _read_raster(self,layer_name:str):
+        raster_path= await async_redis_manager.get(layer_name)
+        if raster_path is None:
+            raise CustomException(status_code=404, detail="Layer not found")
+        with rasterio.open(raster_path) as src:
+            data = src.read(1)
+            transform = src.transform
+            crs = src.crs
+            nodata = src.nodata
+            if nodata is not None:
+                data = np.where(data == nodata, np.nan, data)
+            data = np.where((data < 0) | (data > 1), np.nan, data)
+            res_x = abs(transform[0])
+            res_y = abs(transform[4])
+        return data, res_x, res_y, transform, crs
+    
+    def _apply_threshold_classification(self,data, threshold):
+        mask = (~np.isnan(data)) & (data >= threshold)
+        out = np.zeros_like(data, dtype=np.uint8)
+        out[mask] = 1
+        return out
+    
+    def _calculate_required_pixels(self,required_area_m2, res_x, res_y):
+        pixel_area = res_x * res_y
+        pixels_needed = int(np.ceil(required_area_m2 / pixel_area))
+        kernel_size = int(np.ceil(np.sqrt(pixels_needed)))
+        return kernel_size, pixels_needed
+    
+    def _find_suitable_areas(self,reclassified, kernel_size, required_pixels):
+        rows, cols = reclassified.shape
+        mask = np.zeros_like(reclassified, dtype=np.uint8)
+
+        for i in tqdm(range(rows - kernel_size + 1), desc="Finding suitable areas"):
+            for j in range(cols - kernel_size + 1):
+                window = reclassified[i:i+kernel_size, j:j+kernel_size]
+                if np.sum(window) >= required_pixels:
+                    mask[i:i+kernel_size, j:j+kernel_size] = 1
+        return mask
+    
+    def _extract_clusters_as_polygons(self,mask, transform, crs):
+        labeled, _ = label(mask)
+        polygons = []
+
+        for geom, val in shapes(labeled.astype(np.uint8), transform=transform):
+            if val > 0:
+                polygons.append(shape(geom))
+        gdf = gpd.GeoDataFrame(geometry=polygons, crs=crs)
+        gdf["cluster_id"] = range(len(gdf))
+        gdf["area_ha"] = gdf.area / 10000
+        return gdf
+    
+    def _find_suitable_cluster(self,mld_capacity:float,treatment_technology:float,custom_land_per_mld:float,layer_name:str):
+        req_ha=(mld_capacity*treatment_technology) +custom_land_per_mld
+        req_m2=req_ha*10000
+        data, rx, ry, transform, crs =  self._read_raster(layer_name)
+        threshold_mask = self._apply_threshold_classification(data, self.SUITABILITY_THRESHOLD)
+        kernel_size, required_pixels = self._calculate_required_pixels(req_m2, rx, ry)
+        suitable_mask = self._find_suitable_areas(threshold_mask, kernel_size, required_pixels)
+        clusters_gdf = self._extract_clusters_as_polygons(suitable_mask, transform, crs)
+        if clusters_gdf.empty:
+            raise CustomException(status_code=404, detail="Suitable area not found")
+        temp_cluster_path=Settings().TEMP_DIR+"/temp_cluster.shp"
+        clusters_gdf.to_file(temp_cluster_path,driver="ESRI Shapefile")
+        return clusters_gdf,crs
+
+    def _read_elevation(self,longitude:float,latitude:float):
+        with rasterio.open(self.elivation_path) as src:
+            elev = src.read(1)
+            etrans = src.transform
+            ecrs = src.crs
+
+        transformer = Transformer.from_crs("EPSG:4326", ecrs, always_xy=True)
+        x, y = transformer.transform(longitude, latitude)
+
+        row, col = rasterio.transform.rowcol(etrans, x, y)
+        row = np.clip(row, 0, elev.shape[0] - 1)
+        col = np.clip(col, 0, elev.shape[1] - 1)
+
+        return elev,etrans,elev[row, col]
+    
+    def _cluster_mean_elev(self,geom, elev, transform):
+        vals = []
+        for x, y in geom.exterior.coords:
+            r, c = rasterio.transform.rowcol(transform, x, y)
+            if 0 <= r < elev.shape[0] and 0 <= c < elev.shape[1]:
+                vals.append(elev[r, c])
+        return np.mean(vals) if vals else np.nan
+    
+    def _filter_by_elevation(self,gdf, elev, transform, ref):
+        out = []
+        for row in tqdm(gdf.itertuples(), total=len(gdf), desc="Elevation filter"):
+            m = self._cluster_mean_elev(row.geometry, elev, transform)
+            if m < ref:
+                d = row._asdict()
+                d["mean_elev"] = m
+                out.append(d)
+        return gpd.GeoDataFrame(out, crs=gdf.crs) 
+    
+    def _nearest(self,G, pt):
+        nodes = np.array(list(G.nodes))
+        if len(nodes) == 0:
+            return None
+
+        pt = np.array(pt)
+        if np.any(np.isnan(pt)):
+            return None
+
+        d = np.linalg.norm(nodes - pt, axis=1)
+        return tuple(nodes[np.argmin(d)])
+    
+
+    def _find_suitable_path(self,clusters:gpd.GeoDataFrame,crs:str,location:list):
+        longitude, latitude =self._centroid_location(location)
+        elev, etrans, ref = self._read_elevation(longitude, latitude)
+        clusters = self._filter_by_elevation(clusters, elev, etrans, ref)
+    
+
+class STPsuitabilityMapper(STP_Area):
     def __init__(self, config: GeoConfig = None):
         self.config = config or GeoConfig()
         self.processor = RasterProcess(self.config)
         self.BASE_DIR=Settings().BASE_DIR
         self.TEMP_DIR=Settings().TEMP_DIR+"/STP_suitability"
         os.makedirs(self.TEMP_DIR, exist_ok=True)
-        self.elivation_raster=self.BASE_DIR+"/media/Rajat_data/shape_stp/stp_area_elivation.tif"
     
     def get_vector_file(self, vector_name: str)->str:
         if vector_name =="zone_A":
@@ -806,7 +868,6 @@ class STPsuitabilityMapper:
         self.processor._saveraster(processed_data,output_path,out_meta)
         return output_path
 
-    
     def _get_operations_raster(self,db:db_dependency,payload:List):
         all_suitability_raster=STP_suitability_crud(db).get_all(True)
         payload_dict = {r.id: r.weight for r in payload.data}
@@ -875,6 +936,7 @@ class STPsuitabilityMapper:
         final_path=self._cliping_raster(final_path,final_name,village_vector)
         unique_store_name =Unique_name.unique_name(self.config.raster_store)
         _,layer_name=await geo.upload_raster(workspace_name=self.config.raster_workspace, store_name=unique_store_name, raster_path=final_path)
+        await async_redis_manager.setex(layer_name, 10800, str(final_path))
         await geo.apply_sld_to_layer(workspace_name=self.config.raster_workspace, layer_name = layer_name,sld_content=sld_path, sld_name=layer_name)
         return {
                 "workspace": self.config.raster_workspace,
@@ -882,3 +944,6 @@ class STPsuitabilityMapper:
                 "cluster_name": layer_name
         }
 
+    async def get_area(self,db:db_dependency,payload:STP_suitability_Area):
+        print(payload)
+        pass

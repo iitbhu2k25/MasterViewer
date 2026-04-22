@@ -62,7 +62,7 @@ class STP_suitability_Area(BaseModel):
     mld_capacity:float
     custom_land_per_mld: float = Field(2.0, le=2) 
     layer_name:str
-    location:List[Tuple[float, float]]
+
     
 class Raster_operation_input(BaseModel):
     id :int
@@ -287,4 +287,6 @@ class RasterVisual(BaseModel):
 class stp_area_resp(BaseModel):
     cluster_layer:str|None=None
     suitable_path:str|None=None
+
+
 
