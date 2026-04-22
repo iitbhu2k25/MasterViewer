@@ -98,11 +98,8 @@ class GWPL_output(BaseModel):
 
 class STPsuitabilityInput(BaseModel):
     data: List[Raster_operation_input] = None
-    clip: List[int] = None
     all_data: bool = True
     place: str = None
-    drain_clip:Optional[List[int]]=None
-    village_layer: str = None
 
 
 
@@ -118,7 +115,7 @@ class STPPriorityOutput(BaseModel):
     weight: float
     file_name: str
     id: int 
-    details:Text
+
 
     class Config:
         from_attributes = True

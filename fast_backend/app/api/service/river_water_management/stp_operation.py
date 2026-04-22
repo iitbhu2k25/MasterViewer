@@ -39,96 +39,96 @@ from app.conf.redis.redis_async_manager import async_redis_manager
 
 geo=Geoserver()
 
-class VectorProcess(GeoConfig):
-    def __init__(self):
-        super().__init__()
-        self.village = self._force_to_epsg(self.villages_shapefile)
-        self.basin = self._force_to_epsg(self.basin_shapefile)
-        self.catchment = self._force_to_epsg(self.cachement_shapefile)
-        self.drain_cachement= self._force_to_epsg(self.drain_cachement_shapefile)
-        self.town=self._force_to_epsg(self.town_shapefile)
-        self.TEMP_DIR = Settings().TEMP_DIR
+# class VectorProcess(GeoConfig):
+#     def __init__(self):
+#         super().__init__()
+#         self.village = self._force_to_epsg(self.villages_shapefile)
+#         self.basin = self._force_to_epsg(self.basin_shapefile)
+#         self.catchment = self._force_to_epsg(self.cachement_shapefile)
+#         self.drain_cachement= self._force_to_epsg(self.drain_cachement_shapefile)
+#         self.town=self._force_to_epsg(self.town_shapefile)
+#         self.TEMP_DIR = Settings().TEMP_DIR
         
-    def _force_to_epsg(self, gdf: str, epsg: str = "EPSG:32644") -> gpd.GeoDataFrame:
-        gdf=gpd.read_file(gdf)
-        if gdf.crs is None:
-            gdf.set_crs(epsg, inplace=True)
-            return gdf
-        return gdf.to_crs(epsg)
+#     def _force_to_epsg(self, gdf: str, epsg: str = "EPSG:32644") -> gpd.GeoDataFrame:
+#         gdf=gpd.read_file(gdf)
+#         if gdf.crs is None:
+#             gdf.set_crs(epsg, inplace=True)
+#             return gdf
+#         return gdf.to_crs(epsg)
     
-    def get_village(self,clip:List[int]=None):
-        return self.village[self.village['ID'].isin(clip)]
+#     def get_village(self,clip:List[int]=None):
+#         return self.village[self.village['ID'].isin(clip)]
     
-    def get_sub_village(self,clip:List[int]=None):
-        return self.village[self.village['subdis_cod'].isin(clip)]
+#     def get_sub_village(self,clip:List[int]=None):
+#         return self.village[self.village['subdis_cod'].isin(clip)]
     
-    def get_town(self,clip:List[int]=None):
-        town_vector = self.town[self.town['ID'].isin(clip)].copy()
-        if town_vector.empty:
-            raise ValueError("No town polygon found for the provided clip ID(s)")
-        buffer_map = {1: 35000, 2: 30000, 3: 25000, 4: 20000, 5: 10000}
-        town_vector['buffer'] = town_vector['class'].map(buffer_map).fillna(5000)
-        town_vector['buffered'] = town_vector.geometry.buffer(town_vector['buffer'])
-        town_buffer = unary_union(town_vector['buffered'].tolist())
-        town_buffer = town_buffer.buffer(0)
-        if town_buffer.is_empty:
-            raise ValueError("Final buffer is empty")
-        return gpd.GeoDataFrame(geometry=[town_buffer], crs=self.town.crs)
+#     def get_town(self,clip:List[int]=None):
+#         town_vector = self.town[self.town['ID'].isin(clip)].copy()
+#         if town_vector.empty:
+#             raise ValueError("No town polygon found for the provided clip ID(s)")
+#         buffer_map = {1: 35000, 2: 30000, 3: 25000, 4: 20000, 5: 10000}
+#         town_vector['buffer'] = town_vector['class'].map(buffer_map).fillna(5000)
+#         town_vector['buffered'] = town_vector.geometry.buffer(town_vector['buffer'])
+#         town_buffer = unary_union(town_vector['buffered'].tolist())
+#         town_buffer = town_buffer.buffer(0)
+#         if town_buffer.is_empty:
+#             raise ValueError("Final buffer is empty")
+#         return gpd.GeoDataFrame(geometry=[town_buffer], crs=self.town.crs)
         
-    def get_drain(self,clip:List[int]=None):
-        drain_vector = self.drain_cachement[self.drain_cachement['Drain_No'].isin(clip)].copy()
-        if drain_vector.empty:
-            raise ValueError("No town polygon found for the provided clip ID(s)")
-        buffer_map = {1: 35000, 2: 30000, 3: 25000, 4: 20000, 5: 10000}
-        drain_vector['buffer'] =drain_vector['class'].map(buffer_map).fillna(5000)
-        town_poly = drain_vector.iloc[0].geometry
-        cls = int(drain_vector.iloc[0]['class'])
-        buf = buffer_map.get(cls, 5000)
-        return town_poly.buffer(buf)
+#     def get_drain(self,clip:List[int]=None):
+#         drain_vector = self.drain_cachement[self.drain_cachement['Drain_No'].isin(clip)].copy()
+#         if drain_vector.empty:
+#             raise ValueError("No town polygon found for the provided clip ID(s)")
+#         buffer_map = {1: 35000, 2: 30000, 3: 25000, 4: 20000, 5: 10000}
+#         drain_vector['buffer'] =drain_vector['class'].map(buffer_map).fillna(5000)
+#         town_poly = drain_vector.iloc[0].geometry
+#         cls = int(drain_vector.iloc[0]['class'])
+#         buf = buffer_map.get(cls, 5000)
+#         return town_poly.buffer(buf)
         
-    def get_town_village(self,clip:List[int]=None):
-        town_buff = self.get_town(clip)
-        village = self.village.to_crs(town_buff.crs)
-        village['geometry'] = village['geometry'].buffer(0)
-        geom = town_buff.geometry.iloc[0]   
-        resp = village[village.intersects(geom)].copy()
-        return resp
+#     def get_town_village(self,clip:List[int]=None):
+#         town_buff = self.get_town(clip)
+#         village = self.village.to_crs(town_buff.crs)
+#         village['geometry'] = village['geometry'].buffer(0)
+#         geom = town_buff.geometry.iloc[0]   
+#         resp = village[village.intersects(geom)].copy()
+#         return resp
     
-    def get_town_buffer(self,clip:List[int]=None):
-        buffered_geom = self.get_town(clip)
-        buffered_gdf = gpd.GeoDataFrame(geometry=[buffered_geom], crs="EPSG:32644")
-        if len(buffered_gdf) > 1:
-            union_geom = buffered_gdf.geometry.union_all()
-            buffered_gdf = gpd.GeoDataFrame(geometry=[union_geom], crs=buffered_gdf.crs)
-        return buffered_gdf
+#     def get_town_buffer(self,clip:List[int]=None):
+#         buffered_geom = self.get_town(clip)
+#         buffered_gdf = gpd.GeoDataFrame(geometry=[buffered_geom], crs="EPSG:32644")
+#         if len(buffered_gdf) > 1:
+#             union_geom = buffered_gdf.geometry.union_all()
+#             buffered_gdf = gpd.GeoDataFrame(geometry=[union_geom], crs=buffered_gdf.crs)
+#         return buffered_gdf
     
-    def get_drain_buffer(self,clip:List[int]=None):
-        buffered_geom = self.get_drain(clip)
-        buffered_gdf = gpd.GeoDataFrame(geometry=[buffered_geom], crs="EPSG:32644")
-        if len(buffered_gdf) > 1:
-            union_geom = buffered_gdf.geometry.union_all()
-            buffered_gdf = gpd.GeoDataFrame(geometry=[union_geom], crs=buffered_gdf.crs)
-        return buffered_gdf
+#     def get_drain_buffer(self,clip:List[int]=None):
+#         buffered_geom = self.get_drain(clip)
+#         buffered_gdf = gpd.GeoDataFrame(geometry=[buffered_geom], crs="EPSG:32644")
+#         if len(buffered_gdf) > 1:
+#             union_geom = buffered_gdf.geometry.union_all()
+#             buffered_gdf = gpd.GeoDataFrame(geometry=[union_geom], crs=buffered_gdf.crs)
+#         return buffered_gdf
             
-    def get_basin(self):
-        return self.basin
-    async def _temporory_vector(self,vector_temp_file:gpd.GeoDataFrame):
-        random_name = f"{uuid.uuid4().hex}"
-        unique_village_zip = f"catchment_{random_name}.zip"
-        output_zip_path = self.TEMP_DIR+"/"+ unique_village_zip
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_shp = Path(temp_dir) / f"catchment_{random_name}.shp"
-            vector_temp_file.to_file(temp_shp, driver='ESRI Shapefile', engine='fiona')
-            with zipfile.ZipFile(output_zip_path, 'w') as zipf:
-                for file in temp_shp.parent.glob(f"catchment_{random_name}.*"):
-                    zipf.write(file, file.name)
+#     def get_basin(self):
+#         return self.basin
+#     async def _temporory_vector(self,vector_temp_file:gpd.GeoDataFrame):
+#         random_name = f"{uuid.uuid4().hex}"
+#         unique_village_zip = f"catchment_{random_name}.zip"
+#         output_zip_path = self.TEMP_DIR+"/"+ unique_village_zip
+#         with tempfile.TemporaryDirectory() as temp_dir:
+#             temp_shp = Path(temp_dir) / f"catchment_{random_name}.shp"
+#             vector_temp_file.to_file(temp_shp, driver='ESRI Shapefile', engine='fiona')
+#             with zipfile.ZipFile(output_zip_path, 'w') as zipf:
+#                 for file in temp_shp.parent.glob(f"catchment_{random_name}.*"):
+#                     zipf.write(file, file.name)
 
-        name_only = os.path.splitext(os.path.basename(output_zip_path))[0]
-        await geo.upload_vector("vector_work",str(output_zip_path),name_only)
-        return name_only
+#         name_only = os.path.splitext(os.path.basename(output_zip_path))[0]
+#         await geo.upload_vector("vector_work",str(output_zip_path),name_only)
+#         return name_only
     
 
-class RasterProcess(VectorProcess):    
+class RasterProcess:    
     def __init__(self, config: GeoConfig = GeoConfig()):
         super().__init__()
         self.output_dir=Path(config.output_path) / "SLD" 
@@ -717,27 +717,35 @@ class STPsuitabilityMapper:
         self.BASE_DIR=Settings().BASE_DIR
         self.TEMP_DIR=Settings().TEMP_DIR+"/STP_suitability"
         os.makedirs(self.TEMP_DIR, exist_ok=True)
+        self.elivation_raster=self.BASE_DIR+"/media/Rajat_data/shape_stp/stp_area_elivation.tif"
     
-    async def cachement_villages(self,db:Session,drain_no:List[int]):
-        catchment_buffer = self.processor.get_drain_buffer(clip=drain_no).iloc[0].geometry
-        villages_sindex = self.processor.village.sindex
-        possible_matches_idx = list(villages_sindex.query(catchment_buffer, predicate="intersects"))
-        villages = self.processor.village.iloc[possible_matches_idx]
-        villages_intersect = villages[villages.geometry.intersects(catchment_buffer)].copy()
-        villages_intersect = villages_intersect[villages_intersect.geometry.is_valid].copy()
-        villages_intersect = villages_intersect.set_geometry(
-            villages_intersect.geometry.buffer(0)
-        )
-        villages_intersect["geometry"] = villages_intersect.geometry.buffer(0)
-        villages_intersect = villages_intersect.rename(columns={'ID': 'village_id'})
-        
-        temp_vill_name=Unique_name.unique_name("catch_vill")
-        village_temp_path=os.path.join(self.TEMP_DIR,temp_vill_name+".shp")
-        villages_intersect.to_file(village_temp_path, driver='ESRI Shapefile', engine='fiona')
-        vector_name=await self._temporory_vector(vector_temp_file=villages_intersect)
-        await async_redis_manager.setex(vector_name, 10800, str(village_temp_path))
-        return STPCatchmentOutput(layer_name=vector_name)
-        
+    def get_vector_file(self, vector_name: str)->str:
+        if vector_name =="zone_A":
+            return self.BASE_DIR+"/media/Rajat_data/shape_stp/area/zone_A/zone_A.shp"
+        elif vector_name =="zone_B":
+            return self.BASE_DIR+"/media/Rajat_data/shape_stp/area/zone_B/zone_B.shp"
+        elif vector_name =="zone_C":
+            return self.BASE_DIR+"/media/Rajat_data/shape_stp/area/zone_C/zone_C.shp"
+        elif vector_name =="zone_D":
+            return self.BASE_DIR+"/media/Rajat_data/shape_stp/area/zone_D/zone_D.shp"
+        elif vector_name =="zone_E":
+            return self.BASE_DIR+"/media/Rajat_data/shape_stp/area/zone_E/zone_E.shp"
+        elif vector_name =="zone_F":
+            return self.BASE_DIR+"/media/Rajat_data/shape_stp/area/zone_F/zone_F.shp"
+        elif vector_name =="zone_G":
+            return self.BASE_DIR+"/media/Rajat_data/shape_stp/area/zone_G/zone_G.shp"
+    
+    def _get_elivation_value(self, vector_name: str)->float:
+        centroid_value=None
+        print(vector_name)
+        vector_path=self.get_vector_file(vector_name)
+        village_vector=gpd.read_file(vector_path)
+        centroid= village_vector.centroid
+        with rasterio.open(self.elivation_raster) as src:
+            coords = [(x,y) for x, y in zip(centroid.geometry.x, centroid.geometry.y)]
+            centroid_value = [val[0] for val in src.sample(coords)]
+        print("centroid",centroid," and centroid_value",centroid_value)
+        return centroid_value,village_vector
     
     def temporary_raster(self,raster_path:str,elevation_value:float):
         with rasterio.open(raster_path) as src:
@@ -798,20 +806,6 @@ class STPsuitabilityMapper:
         self.processor._saveraster(processed_data,output_path,out_meta)
         return output_path
 
-    async def _temporory_vector(self,vector_temp_file:gpd.GeoDataFrame):
-        random_name = f"{uuid.uuid4().hex}"
-        unique_village_zip = f"catchment_{random_name}.zip"
-        output_zip_path = self.TEMP_DIR+"/"+ unique_village_zip
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_shp = Path(temp_dir) / f"catchment_{random_name}.shp"
-            vector_temp_file.to_file(temp_shp, driver='ESRI Shapefile', engine='fiona')
-            with zipfile.ZipFile(output_zip_path, 'w') as zipf:
-                for file in temp_shp.parent.glob(f"catchment_{random_name}.*"):
-                    zipf.write(file, file.name)
-
-        name_only = os.path.splitext(os.path.basename(output_zip_path))[0]
-        await geo.upload_vector("vector_work",str(output_zip_path),name_only)
-        return name_only
     
     def _get_operations_raster(self,db:db_dependency,payload:List):
         all_suitability_raster=STP_suitability_crud(db).get_all(True)
@@ -856,33 +850,12 @@ class STPsuitabilityMapper:
             dest.write(out_image)
         return output_path
     
-    def _town_to_villages(self,clip:List):
-        selected_villages =self.processor.get_town_village(clip)
-        vector_name=self._temporory_vector(vector_temp_file=selected_villages)
-        return selected_villages['ID'].tolist(),vector_name
-    
-    async def _get_suitability_vill(self,place:str,clip:list,layer_name:str)->Tuple[gpd.GeoDataFrame,str]:
-        villages_vector=None
-        if place == 'Drain':
-            village_vector=await async_redis_manager.get(layer_name)
-            village_vector=gpd.read_file(village_vector)
-            return village_vector,layer_name
-        villages_vector=self.processor.get_town_village(clip)
-        temp_vill_name=Unique_name.unique_name("suit_vill")
-        village_temp_path=os.path.join(self.TEMP_DIR,temp_vill_name+".shp")
-        villages_vector.to_file(str(village_temp_path),driver="ESRI Shapefile")
-        vector_name=await self._temporory_vector(vector_temp_file=villages_vector)
-        await async_redis_manager.setex(vector_name, 10800, str(village_temp_path))
-        return villages_vector,vector_name
-    
     def _get_raster_with_weight(self,db:db_dependency,payload:List):
         condition_raster,constraintion_raster=self._get_operations_raster(db,payload)
         raster_path=[]
         raster_weights=[]
-        if payload.place == "Drain":
-            elevation_value=Stp_drain_new_crud(db).get_sum_elevation(payload.drain_clip)/len(payload.drain_clip)
-        else: 
-            elevation_value=Stp_towns_crud(db).get_sum_elevation(payload.clip)/len(payload.clip)
+        centroid_value,village_vector=self._get_elivation_value(payload.place)
+        elevation_value=centroid_value
         
         for i in condition_raster:
             if i[2] == 'STP_Elevation_Raster':
@@ -891,74 +864,21 @@ class STPsuitabilityMapper:
             else:
                 raster_path.append(i[0])
             raster_weights.append(i[1])
-        return raster_path,raster_weights,constraintion_raster
+
+        return raster_path,raster_weights,constraintion_raster,village_vector
     
-    async def _suitability_clip_details(self,raster_path:str,village_vector:gpd.GeoDataFrame):
-        with rasterio.open(raster_path) as src:
-            raster = src.read(1, masked=True)
-            affine = src.transform
-
-            # Compute equal interval breaks
-            min_val = raster.min()
-            max_val = raster.max()
-            bins = np.linspace(min_val, max_val, 6)  # 5 classes = 6 edges
-
-            # Reclassify raster into 1–5 classes
-            reclass_raster = np.digitize(raster, bins[1:-1]) + 1  # bins[1:-1] excludes first & last edges
-            reclass_raster = np.where(raster.mask, 0, reclass_raster) 
-            
-
-            stats = zonal_stats(
-                vectors=village_vector,
-                raster=reclass_raster,
-                affine=affine,
-                nodata=0,
-                categorical=True,
-                geojson_out=False 
-            )
-            results = self.processor._get_table_data(village_vector, stats)
-            return results
-
     async def create_suitability_map(self,db:db_dependency,payload:STPsuitabilityInput,reverse:bool=False):
-        raster_path,raster_weights,constraintion_raster=self._get_raster_with_weight(db,payload)
+        raster_path,raster_weights,constraintion_raster,village_vector=self._get_raster_with_weight(db,payload)
         _,final_path=self._get_overlay_raster(raster_path,constraintion_raster,raster_weights)
         final_name = Unique_name.unique_name_with_ext('STP_suitability','tif') 
         sld_path,sld_name=RasterProcess().processRaster(final_path,reverse=reverse)
-        village_vector=await async_redis_manager.get(payload.village_layer)
-        village_vector=gpd.read_file(village_vector)
         final_path=self._cliping_raster(final_path,final_name,village_vector)
-        csv_details=self.processor.clip_details(raster_path=final_path,priority_raster=final_path,villages_vector=village_vector)
         unique_store_name =Unique_name.unique_name(self.config.raster_store)
         _,layer_name=await geo.upload_raster(workspace_name=self.config.raster_workspace, store_name=unique_store_name, raster_path=final_path)
         await geo.apply_sld_to_layer(workspace_name=self.config.raster_workspace, layer_name = layer_name,sld_content=sld_path, sld_name=layer_name)
-        await async_redis_manager.setex(layer_name, 10800, str(final_path))
         return {
                 "workspace": self.config.raster_workspace,
                 "layer_name": layer_name,
-                "csv_details":csv_details
-            }
-
-    async def visual_sutabilty_map(self,db:db_dependency,clip:List[int]=None,place:str=None,layer_name:str=None) -> str:
-        raster_path=Stp_service.get_suitability_visual(db,all_data=True)
-        raster_path = [{"file_name": i.file_name,
-                        "path": os.path.abspath(Settings().BASE_DIR+"/"+i.file_path),
-                        "sld_path": os.path.abspath(Settings().BASE_DIR+"/"+i.sld_path,)                                            
-                        } for i in raster_path]
-        response=[]
-        village_vector,geo_vector_layer=await self._get_suitability_vill(place,clip,layer_name)
-        for i in raster_path:
-            final_name=Unique_name.unique_name_with_ext(i['file_name'],"tif")
-            final_path=self._cliping_raster(i['path'],final_name,village_vector)
-            unique_store_name =Unique_name.unique_name(self.config.raster_store)
-            _,layer_name=await geo.upload_raster(workspace_name=self.config.raster_workspace, store_name=unique_store_name, raster_path=final_path)
-            await geo.apply_sld_to_layer(workspace_name=self.config.raster_workspace, layer_name = layer_name,sld_content=i['sld_path'], sld_name=layer_name)   
-            response.append({
-                "workspace": self.config.raster_workspace,
-                "layer_name": layer_name,
-                "file_name":i["file_name"],
-            })
-        return {
-            "raster_layer":response,
-            "vector_layer":geo_vector_layer
+                "cluster_name": layer_name
         }
-     
+
