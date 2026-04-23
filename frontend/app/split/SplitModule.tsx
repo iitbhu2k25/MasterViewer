@@ -7,6 +7,7 @@ import { useLocationSelection } from "../shared/hooks/useLocationSelection";
 import type { BasemapType, StickyNote, ViewerMessage } from "../shared/types";
 import SplitMasterPanel from "./components/SplitMasterPanel";
 import SplitViewerWindow from "./components/SplitViewerWindow";
+import type { STPWmsLayer } from "./components/STPSuitabilityPanel";
 
 const AdminMap = dynamic(
   () => import("../(holistic-approach)/holistic/components/AdminMap"),
@@ -84,7 +85,15 @@ export default function SplitModule() {
   const { areaGeojson, riversGeojson, basinGeojson } = useLocationSelection();
 
   const [layerState] = useState({ basin: true, rivers: true, area: true });
-  const [showViewers, setShowViewers] = useState(false);
+  const [visibleScreens, setVisibleScreens] = useState<Record<string, boolean>>({
+    top: false, topSecondary: false, left: false, right: false, bottom: false,
+  });
+  const handleToggleScreen = useCallback((side: string) => {
+    setVisibleScreens(prev => ({ ...prev, [side]: !prev[side] }));
+  }, []);
+  const handleSetAllScreens = useCallback((visible: boolean) => {
+    setVisibleScreens({ top: visible, topSecondary: visible, left: visible, right: visible, bottom: visible });
+  }, []);
   const [basemap, setBasemap] = useState<BasemapType>("terrain");
   const [showBasemap, setShowBasemap] = useState(true);
   const [masterCollapsed, setMasterCollapsed] = useState(false);
@@ -98,6 +107,9 @@ export default function SplitModule() {
   const [masterNoteShape, setMasterNoteShape] = useState<StickyNote["shape"]>("sticky");
   const [viewerMessages, setViewerMessages] = useState<ViewerMessage[]>([]);
   const [aviralCriteria, setAviralCriteria] = useState<string[]>([]);
+  const [activeModule, setActiveModule] = useState<"Aviral Ganga" | "Nirmal Ganga" | "STP Suitability">("Aviral Ganga");
+  const [mainStpLayer,     setMainStpLayer]     = useState<STPWmsLayer | null>(null);
+  const [mainStpAreaLayer, setMainStpAreaLayer] = useState<STPWmsLayer | null>(null);
   const [screenNames, setScreenNames] = useState<Record<string, string>>({
     top: "Screen 1",
     topSecondary: "Screen 2",
@@ -332,7 +344,7 @@ export default function SplitModule() {
         if (s.screenNames) setScreenNames(s.screenNames);
         // Show screen viewers if any viewer-side marks exist
         const hasViewerMarks = s.marks?.some(m => m.viewerSide !== "main");
-        if (hasViewerMarks) setShowViewers(true);
+        if (hasViewerMarks) setVisibleScreens({ top: true, topSecondary: true, left: true, right: true, bottom: true });
         // Reuse same session so future marks append to it
         sessionRef.current = { ...s };
       }
@@ -428,6 +440,8 @@ export default function SplitModule() {
           onStickyMapClick={handleMasterMapClick}
           activeCriteria={aviralCriteria}
           screenNames={screenNames}
+          stpWmsLayer={mainStpLayer}
+          stpAreaWmsLayer={mainStpAreaLayer}
         />
       </div>
 
@@ -438,7 +452,8 @@ export default function SplitModule() {
           title={viewer.title}
           onScreenNameChange={(name) => setScreenNames((prev) => ({ ...prev, [viewer.side]: name }))}
           subtitle={viewer.subtitle}
-          visible={showViewers}
+          visible={visibleScreens[viewer.side] ?? false}
+          onHideSelf={() => setVisibleScreens(prev => ({ ...prev, [viewer.side]: false }))}
           basemap={basemap}
           showBasemap={showBasemap}
           scale={viewerScale}
@@ -479,12 +494,17 @@ export default function SplitModule() {
           revealedNotes={revealedNotes}
           onRevealNote={(noteId) => handleRevealNote(noteId, viewer.side)}
           onHideNote={(noteId) => handleHideNote(noteId, viewer.side)}
+          activeModule={activeModule}
+          onSTPPresentToMain={(layer) => setMainStpLayer(layer)}
+          onSTPAreaPresentToMain={(layer) => setMainStpAreaLayer(layer)}
         />
       ))}
 
       <SplitMasterPanel
-        showViewers={showViewers}
-        onToggleViewers={() => setShowViewers((prev) => !prev)}
+        visibleScreens={visibleScreens}
+        onToggleScreen={handleToggleScreen}
+        onSetAllScreens={handleSetAllScreens}
+        screenNames={screenNames}
         basemap={basemap}
         onBasemapChange={setBasemap}
         showBasemap={showBasemap}
@@ -503,6 +523,8 @@ export default function SplitModule() {
         onClearZones={handleClearZones}
         aviralCriteria={aviralCriteria}
         onAviralCriteriaChange={setAviralCriteria}
+        activeModule={activeModule}
+        onActiveModuleChange={setActiveModule}
       />
     </div>
   );

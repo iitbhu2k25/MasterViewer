@@ -36,23 +36,19 @@ services:
       - geoserver
     
 
-  # fast_api:
-  #   build:
-  #     context: ./fast_api
-  #     dockerfile: Dockerfile
-  #   image: fast_m:latest
-  #   ports:
-  #     - "7100:7100"
-  #   env_file:
-  #     - ./fast_api/.fastmdb.env
-  #   volumes:
-  #     - ./fast_api:/home/app:z
-  #   command: uvicorn app.main:app --host 0.0.0.0 --port 7100 --reload
-  #   restart: always
-  #   depends_on:
-  #     - database
-  #     - geoserver   
-
+  fast_backend:
+    build:
+      context: ./fast_backend
+      dockerfile: Dockerfile
+    image: fast_m:latest
+    ports:
+      - "7100:7100"
+    env_file:
+      - ./fast_backend/.fastdb.env
+    volumes:
+      - ./fast_backend:/home/app:z
+    command: uvicorn app.main:app --host 0.0.0.0 --port 7100 --reload
+    restart: always
 
   # db:
   #   image: postgres:15-alpine
@@ -82,7 +78,17 @@ services:
     restart: always
     depends_on:
       - geoserver
-
+  redis:
+    image: redis:7.4
+    ports:
+      - "6379:6379"
+    expose:
+      - "6379"
+    env_file:
+      - ./fast_backend/.fastdb.env
+    restart: always
+    volumes:
+      - redis_data:/data 
 
   geoserver:
     image: kartoza/geoserver:2.28.0
@@ -102,9 +108,10 @@ services:
       GEOSERVER_ADMIN_USER: admin
       GEOSERVER_ADMIN_PASSWORD: geoserver
     env_file:
-      - ./fast_api/.fastmdb.env
+      - ./fast_backend/.fastdb.env
     restart: always    
 
 volumes:
   postgres_data:
   geoserver_data:
+  redis_data:

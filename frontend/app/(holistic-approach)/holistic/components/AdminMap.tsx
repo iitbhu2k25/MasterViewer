@@ -516,6 +516,8 @@ type Props = {
   rwqSeason?: RwqSeason;
   onStpDataLoaded?: (stps: any[]) => void;
   screenNames?: Record<string, string>;
+  stpWmsLayer?:     { url: string; layers: string } | null;
+  stpAreaWmsLayer?: { url: string; layers: string } | null;
 };
 
 export default function AdminMap({
@@ -547,6 +549,8 @@ export default function AdminMap({
   rwqSeason = "monsoon",
   onStpDataLoaded,
   screenNames,
+  stpWmsLayer     = null,
+  stpAreaWmsLayer = null,
 }: Props) {
   const tileConfig = basemap ? BASEMAP_TILES[basemap] : BASEMAP_TILES.streets;
 
@@ -785,6 +789,22 @@ export default function AdminMap({
             opacity={0.65}
           />
         ) : null}
+        {stpWmsLayer && (
+          <WMSTileLayer
+            key={`stp-wms-main-${stpWmsLayer.layers}`}
+            url={stpWmsLayer.url}
+            params={{ layers: stpWmsLayer.layers, format: "image/png", transparent: true, version: "1.1.0" } as any}
+            opacity={0.7}
+          />
+        )}
+        {stpAreaWmsLayer && (
+          <WMSTileLayer
+            key={`stp-area-main-${stpAreaWmsLayer.layers}`}
+            url={stpAreaWmsLayer.url}
+            params={{ layers: stpAreaWmsLayer.layers, format: "image/png", transparent: true, version: "1.1.0" } as any}
+            opacity={0.85}
+          />
+        )}
         {activeCriteria.includes("Tributary & drain flow") && (
           <DrainWFSLayer areaGeojson={areaGeojson} selectedZones={selectedZones} />
         )}

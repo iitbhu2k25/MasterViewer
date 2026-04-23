@@ -15,7 +15,8 @@
 
 /fast_api/media/
 /fast_api/.fastmdb.env/
-
+/fast_backend/media/
+/fast_backend/.fastdb.env/
 # Docker related
 docker-compose.override.yml
 *.log

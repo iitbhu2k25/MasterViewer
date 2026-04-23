@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { GeoJSON, MapContainer, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { GeoJSON, MapContainer, TileLayer, WMSTileLayer, useMap, useMapEvents } from "react-leaflet";
+import type { STPWmsLayer } from "./STPSuitabilityPanel";
 import type { BasemapType, FeatureCollection, StickyNote } from "../../shared/types";
 import { BASEMAP_TILES } from "../../shared/types";
 import DrainWFSLayer from "../../shared/map-layers/DrainWFSLayer";
@@ -423,6 +424,8 @@ type Props = {
   clipApiBase: string;
   /** CSS rotation angle applied to the viewer container (0, 90, 180, -90). Used to fix touch-pan direction. */
   mapRotation?: number;
+  stpWmsLayer?:  STPWmsLayer | null;
+  stpAreaLayer?: STPWmsLayer | null;
 };
 
 export default function SplitMapViewer({
@@ -448,6 +451,8 @@ export default function SplitMapViewer({
   activeCriteria = [],
   clipApiBase,
   mapRotation = 0,
+  stpWmsLayer  = null,
+  stpAreaLayer = null,
 }: Props) {
   const tileConfig = BASEMAP_TILES[basemap];
 
@@ -549,6 +554,24 @@ export default function SplitMapViewer({
       )}
       {activeCriteria.includes("Surface flow direction & accumulation maps") && (
         <FlowDirectionRasterLayer enabled={true} selectedZones={selectedZones} clipApiBase={clipApiBase} dataType="direction" />
+      )}
+
+      {stpWmsLayer && (
+        <WMSTileLayer
+          key={`stp-wms-${stpWmsLayer.layers}`}
+          url={stpWmsLayer.url}
+          params={{ layers: stpWmsLayer.layers, format: "image/png", transparent: true, version: "1.1.0" } as any}
+          opacity={0.7}
+        />
+      )}
+
+      {stpAreaLayer && (
+        <WMSTileLayer
+          key={`stp-area-${stpAreaLayer.layers}`}
+          url={stpAreaLayer.url}
+          params={{ layers: stpAreaLayer.layers, format: "image/png", transparent: true, version: "1.1.0" } as any}
+          opacity={0.85}
+        />
       )}
 
       <MapClickHandler

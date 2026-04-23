@@ -4,8 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { BasemapType, StickyNote } from "../../shared/types";
 
 type SplitMasterPanelProps = {
-  showViewers: boolean;
-  onToggleViewers: () => void;
+  visibleScreens: Record<string, boolean>;
+  onToggleScreen: (side: string) => void;
+  onSetAllScreens: (visible: boolean) => void;
+  screenNames: Record<string, string>;
   basemap: BasemapType;
   onBasemapChange: (basemap: BasemapType) => void;
   showBasemap: boolean;
@@ -24,6 +26,8 @@ type SplitMasterPanelProps = {
   onClearZones?: () => void;
   aviralCriteria?: string[];
   onAviralCriteriaChange?: (criteria: string[]) => void;
+  activeModule: "Aviral Ganga" | "Nirmal Ganga" | "STP Suitability";
+  onActiveModuleChange: (module: "Aviral Ganga" | "Nirmal Ganga" | "STP Suitability") => void;
 };
 
 const basemapOptions: { key: BasemapType; label: string; icon: string }[] = [
@@ -36,9 +40,13 @@ const basemapOptions: { key: BasemapType; label: string; icon: string }[] = [
 /** Same accent as the bottom viewer for visual consistency */
 const ACCENT = "#60a5fa";
 
+const SCREEN_SIDES = ["top", "topSecondary", "left", "right", "bottom"] as const;
+
 export default function SplitMasterPanel({
-  showViewers,
-  onToggleViewers,
+  visibleScreens,
+  onToggleScreen,
+  onSetAllScreens,
+  screenNames,
   basemap,
   onBasemapChange,
   showBasemap: _showBasemap,
@@ -57,10 +65,12 @@ export default function SplitMasterPanel({
   onClearZones,
   aviralCriteria = [],
   onAviralCriteriaChange,
+  activeModule,
+  onActiveModuleChange,
 }: SplitMasterPanelProps) {
+  const [showScreensDropdown, setShowScreensDropdown] = useState(false);
   const [showViewerSize, setShowViewerSize] = useState(false);
   const [showBasemapOptions, setShowBasemapOptions] = useState(true);
-  const [activeModule, setActiveModule] = useState<"Aviral Ganga" | "Nirmal Ganga">("Aviral Ganga");
   const [showZoneDropdown, setShowZoneDropdown] = useState(false);
   const zoneDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -248,7 +258,7 @@ export default function SplitMasterPanel({
         }}
       >
         {/* Right column — Zone selector + Modules + Criteria, absolutely positioned */}
-        <div className="absolute top-0.5 right-4 flex flex-col items-end gap-2" style={{ maxWidth: activeModule === "Aviral Ganga" ? 260 : 140, maxHeight: 560, overflowY: "auto" }}>
+        <div className="absolute top-0.5 right-4 flex flex-col items-end gap-2" style={{ maxWidth: activeModule === "Aviral Ganga" ? 260 : activeModule === "STP Suitability" ? 160 : 140, maxHeight: 560, overflowY: "auto" }}>
 
           {/* ── Zone selector ── */}
           <div className="w-full" ref={zoneDropdownRef}>
@@ -349,14 +359,16 @@ export default function SplitMasterPanel({
             <div style={{ flexShrink: 0 }}>
               <p style={{ margin: "0 0 4px", textAlign: "right", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#60a5fa99" }}>Modules</p>
               <div className="flex flex-col gap-1.5">
-                {(["Aviral Ganga", "Nirmal Ganga"] as const).map((moduleName) => (
+                {(["Aviral Ganga",  "STP Suitability"] as const).map((moduleName) => (
                   <button
                     key={moduleName}
                     type="button"
-                    onClick={() => setActiveModule(moduleName)}
+                    onClick={() => onActiveModuleChange(moduleName)}
                     className={`rounded-lg px-3 py-2 text-[11px] font-bold transition-all ${
                       activeModule === moduleName
-                        ? "bg-emerald-500/20 text-emerald-200 ring-1 ring-emerald-400/40"
+                        ? moduleName === "STP Suitability"
+                          ? "bg-blue-500/20 text-blue-200 ring-1 ring-blue-400/40"
+                          : "bg-emerald-500/20 text-emerald-200 ring-1 ring-emerald-400/40"
                         : "bg-white/5 text-slate-300 ring-1 ring-white/5 hover:bg-white/10 hover:text-white"
                     }`}
                   >
@@ -369,29 +381,75 @@ export default function SplitMasterPanel({
         </div>
 
         {/* Left content — padded right to stay clear of the absolute right column */}
-        <div style={{ paddingRight: activeModule === "Aviral Ganga" ? 270 : 150 }}>
+        <div style={{ paddingRight: activeModule === "Aviral Ganga" ? 270 : activeModule === "STP Suitability" ? 170 : 150 }}>
 
-        {/* Row 1: Show/Hide screens — compact, no height inflation */}
-        <div className="mb-2 flex items-center gap-3">
-          <button
-            type="button"
-            onClick={onToggleViewers}
-            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold uppercase tracking-wide transition-all duration-300 ${
-              showViewers
-                ? "bg-red-500/20 text-red-200 ring-1 ring-red-500/40 shadow-lg shadow-red-950/30 hover:bg-red-500/30"
-                : "bg-emerald-500/20 text-emerald-200 ring-1 ring-emerald-500/40 shadow-lg shadow-emerald-950/30 hover:bg-emerald-500/30"
-            }`}
-          >
-            <span
-              className={`inline-block h-2.5 w-2.5 rounded-full transition-all ${
-                showViewers
-                  ? "bg-red-400 shadow-lg shadow-red-400/50"
-                  : "bg-emerald-400 shadow-lg shadow-emerald-400/50 animate-pulse"
-              }`}
-            />
-            {showViewers ? "Hide Screens" : "Show Screens"}
-          </button>
-        </div>
+        {/* Row 1: Screens — single toggle + expand */}
+        {(() => {
+          const anyOn = SCREEN_SIDES.some(s => visibleScreens[s]);
+          return (
+            <div className="mb-2">
+              {/* First row: toggle + expand button */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onSetAllScreens(!anyOn)}
+                  style={{
+                    padding: "3px 10px", fontSize: 10, fontWeight: 700, borderRadius: 6,
+                    border: "1px solid",
+                    borderColor: anyOn ? "rgba(239,68,68,0.45)" : "rgba(52,211,153,0.45)",
+                    background: anyOn ? "rgba(239,68,68,0.15)" : "rgba(52,211,153,0.15)",
+                    color: anyOn ? "#fca5a5" : "#6ee7b7",
+                    cursor: "pointer", transition: "all 0.2s", whiteSpace: "nowrap" as const,
+                  }}
+                >
+                  {anyOn ? "Hide Screen" : "Show Screen"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowScreensDropdown(v => !v)}
+                  title="Toggle individual screens"
+                  style={{
+                    padding: "3px 7px", fontSize: 9, fontWeight: 700, borderRadius: 6,
+                    border: "1px solid rgba(96,165,250,0.3)",
+                    background: showScreensDropdown ? "rgba(96,165,250,0.15)" : "rgba(255,255,255,0.05)",
+                    color: showScreensDropdown ? "#93c5fd" : "#64748b",
+                    cursor: "pointer", transition: "all 0.2s",
+                  }}
+                >
+                  {showScreensDropdown ? "▲" : "▼"}
+                </button>
+              </div>
+
+              {/* Second row: individual pills — only when expanded */}
+              {showScreensDropdown && (
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  {SCREEN_SIDES.map((side, idx) => {
+                    const on = visibleScreens[side] ?? false;
+                    return (
+                      <button
+                        key={side}
+                        type="button"
+                        onClick={() => onToggleScreen(side)}
+                        title={screenNames[side] ?? side}
+                        style={{
+                          width: 22, height: 22, borderRadius: 5, fontSize: 9, fontWeight: 800,
+                          border: "1px solid",
+                          borderColor: on ? "rgba(52,211,153,0.5)" : "rgba(148,163,184,0.2)",
+                          background: on ? "rgba(52,211,153,0.2)" : "rgba(255,255,255,0.04)",
+                          color: on ? "#6ee7b7" : "#475569",
+                          cursor: "pointer", transition: "all 0.15s",
+                          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                        }}
+                      >
+                        {idx + 1}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Row 2a: Basemap — own row so height doesn't inflate due to modules */}
         <div className="mb-2">

@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import dynamic from "next/dynamic";
-import type { BasemapType, FeatureCollection } from "../../shared/types";
+import type { BasemapType, FeatureCollection, StickyNote, ViewerMessage } from "../../shared/types";
 // Re-exported so existing imports from this file continue to work
 export type { StickyNote, ViewerMessage } from "../../shared/types";
 
 const SplitMapViewer = dynamic(() => import("./SplitMapViewer"), { ssr: false });
 const CriteriaDataPanel = dynamic(() => import("./CriteriaDataPanel"), { ssr: false });
+const STPSuitabilityPanel = dynamic(() => import("./STPSuitabilityPanel"), { ssr: false });
 import VirtualKeyboard from "./VirtualKeyboard";
+import type { STPWmsLayer } from "./STPSuitabilityPanel";
 
 export type SplitViewerWindowProps = {
   side: "top" | "topSecondary" | "left" | "right" | "bottom";
@@ -41,6 +43,10 @@ export type SplitViewerWindowProps = {
   onDeleteStickyNote?: (id: string) => void;
   editingScreenNames?: boolean;
   onScreenNameChange?: (name: string) => void;
+  onHideSelf?: () => void;
+  activeModule?: "Aviral Ganga" | "Nirmal Ganga" | "STP Suitability";
+  onSTPPresentToMain?:     (layer: STPWmsLayer | null) => void;
+  onSTPAreaPresentToMain?: (layer: STPWmsLayer | null) => void;
 };
 
 const BEZEL_ACCENT = "#5f5099 ";
@@ -192,7 +198,13 @@ export default function SplitViewerWindow({
   onDeleteStickyNote,
   editingScreenNames = false,
   onScreenNameChange,
+  onHideSelf,
+  activeModule = "Aviral Ganga",
+  onSTPPresentToMain,
+  onSTPAreaPresentToMain,
 }: SplitViewerWindowProps) {
+  const [stpWmsLayer,  setStpWmsLayer]  = useState<STPWmsLayer | null>(null);
+  const [stpAreaLayer, setStpAreaLayer] = useState<STPWmsLayer | null>(null);
   const cfg = sideConfig[side];
   // Extract the rotation angle from the CSS string e.g. "rotate(-90deg)" → -90
   const rotationAngle = parseInt(cfg.rotation.match(/-?\d+/)?.[0] ?? "0", 10);
@@ -576,42 +588,52 @@ export default function SplitViewerWindow({
               {title}
             </span>
           )}
-          <button
-            type="button"
-            onPointerDown={(event) => event.stopPropagation()}
-            onPointerMove={(event) => event.stopPropagation()}
-            onPointerUp={(event) => event.stopPropagation()}
-            onClick={() => {
-              setShowToolsMenu((prev) => {
-                const next = !prev;
-                if (!next) {
-                  setStickyMode(false);
-                  setActiveSubMenu("none");
-                }
-                return next;
-              });
-            }}
-            style={{
-              display: "flex",
-              gap: 4,
-              opacity: 0.9,
-              cursor: "pointer",
-              alignItems: "center",
-              justifyContent: "center",
-              background: "transparent",
-              border: "none",
-              padding: "10px 8px",
-              margin: "-10px -8px",
-            }}
-            title="Tools Menu"
-          >
-            {[0, 1, 2].map((i) => (
-              <span
-                key={i}
-                style={{ display: "block", width: 5, height: 5, borderRadius: "50%", background: "#fff" }}
-              />
-            ))}
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            {/* × hide this screen */}
+            {onHideSelf && (
+              <button
+                type="button"
+                title="Hide this screen"
+                onPointerDown={(e) => e.stopPropagation()}
+                onPointerMove={(e) => e.stopPropagation()}
+                onPointerUp={(e) => e.stopPropagation()}
+                onClick={onHideSelf}
+                style={{
+                  width: 18, height: 18, borderRadius: "50%",
+                  background: "rgba(239,68,68,0.25)", border: "1px solid rgba(239,68,68,0.5)",
+                  color: "#fca5a5", fontSize: 11, fontWeight: 900, lineHeight: 1,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  cursor: "pointer", flexShrink: 0,
+                }}
+              >
+                ×
+              </button>
+            )}
+            {/* 3-dot tools menu */}
+            <button
+              type="button"
+              onPointerDown={(event) => event.stopPropagation()}
+              onPointerMove={(event) => event.stopPropagation()}
+              onPointerUp={(event) => event.stopPropagation()}
+              onClick={() => {
+                setShowToolsMenu((prev) => {
+                  const next = !prev;
+                  if (!next) { setStickyMode(false); setActiveSubMenu("none"); }
+                  return next;
+                });
+              }}
+              style={{
+                display: "flex", gap: 4, opacity: 0.9, cursor: "pointer",
+                alignItems: "center", justifyContent: "center",
+                background: "transparent", border: "none", padding: "10px 8px", margin: "-10px -8px",
+              }}
+              title="Tools Menu"
+            >
+              {[0, 1, 2].map((i) => (
+                <span key={i} style={{ display: "block", width: 5, height: 5, borderRadius: "50%", background: "#fff" }} />
+              ))}
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-col overflow-hidden" style={{ flex: 1, minHeight: 0, borderRadius: "0 0 10px 10px" }}>
@@ -793,6 +815,8 @@ export default function SplitViewerWindow({
                 activeCriteria={activeCriteria}
                 clipApiBase={clipApiBase}
                 mapRotation={rotationAngle}
+                stpWmsLayer={stpWmsLayer}
+                stpAreaLayer={stpAreaLayer}
               />
             ) : null}
             {editedNote && onUpdateStickyNote && editingStickyNoteId ? (
@@ -861,6 +885,25 @@ export default function SplitViewerWindow({
                 </div>
                 <div style={{ width: criteriaWidth, flexShrink: 0, overflow: "hidden" }}>
                   <CriteriaDataPanel activeCriteria={activeCriteria} selectedZones={selectedZones} />
+                </div>
+              </>
+            )}
+
+            {/* STP Suitability side panel — shown when STP module is active */}
+            {activeModule === "STP Suitability" && (
+              <>
+                <div
+                  style={{ width: 6, flexShrink: 0, background: "#1e40af", opacity: 0.5 }}
+                />
+                <div style={{ width: 160, flexShrink: 0, overflow: "hidden" }}>
+                  <STPSuitabilityPanel
+                    selectedZones={selectedZones}
+                    areaGeojson={areaGeojson}
+                    onResultLayer={(layer) => setStpWmsLayer(layer)}
+                    onPresentToMain={(layer) => onSTPPresentToMain?.(layer)}
+                    onAreaLayer={(layer) => setStpAreaLayer(layer)}
+                    onAreaPresentToMain={(layer) => onSTPAreaPresentToMain?.(layer)}
+                  />
                 </div>
               </>
             )}
