@@ -618,7 +618,7 @@ export default function STPSuitabilityPanel({
               {/* Result */}
               {areaResult && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                  <div style={{ padding: "4px 6px", borderRadius: 4, background: areaResult.cluster_name ? "#dcfce7" : "#fef9c3", border: `1px solid ${areaResult.cluster_name ? "#86efac" : "#fde047"}` }}>
+                  {/* <div style={{ padding: "4px 6px", borderRadius: 4, background: areaResult.cluster_name ? "#dcfce7" : "#fef9c3", border: `1px solid ${areaResult.cluster_name ? "#86efac" : "#fde047"}` }}>
                     {areaResult.cluster_name ? (
                       <>
                         <p style={{ margin: "0 0 1px", fontSize: 7, fontWeight: 700, color: "#15803d" }}>✓ Site clusters found</p>
@@ -627,7 +627,7 @@ export default function STPSuitabilityPanel({
                     ) : (
                       <p style={{ margin: 0, fontSize: 7, fontWeight: 600, color: "#854d0e" }}>⚠ No suitable site found for given inputs</p>
                     )}
-                  </div>
+                  </div> */}
                   {areaWmsLayer && (
                     <button
                       type="button"

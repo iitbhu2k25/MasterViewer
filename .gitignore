@@ -5,7 +5,7 @@
 /frontend/.yarn/
 /node_modules/
 ./node_modules/
-/fast_backend/temp/
+/fast_backend/temp
 # Python related
 /backend/__pycache__/
 /backend/.env

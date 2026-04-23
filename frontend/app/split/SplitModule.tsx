@@ -534,6 +534,7 @@ export default function SplitModule() {
         activeModule={activeModule}
         onActiveModuleChange={(mod) => {
           if (mod === "Aviral Ganga") handleResetAllSTP();
+          if (mod !== "Aviral Ganga") setAviralCriteria([]);
           setActiveModule(mod);
         }}
         onResetAllSTP={handleResetAllSTP}

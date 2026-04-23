@@ -486,7 +486,7 @@ export default function SplitMapViewer({
       dashArray: undefined,
       fill: true,
       fillColor: "#fef08a",
-      fillOpacity: 0.38,
+      fillOpacity: 0,
     }),
     [],
   );

@@ -614,8 +614,8 @@ export default function AdminMap({
       const color = zonePalette[Math.abs(hash) % zonePalette.length];
       return {
         color: "#475569",
-        weight: 1.1,
-        dashArray: "3 2",
+        weight: 2.1,
+        // dashArray: "3 2",
         // Keep visual look as boundary-only, but retain an invisible fill for hover hit-area.
         fill: true,
         fillColor: "#000000",
@@ -624,6 +624,16 @@ export default function AdminMap({
     },
     [zonePalette],
   );
+
+  /** Base area layer excludes selected zones so they don't render twice (once dashed + once green) */
+  const unselectedAreaGeojson = useMemo(() => {
+    if (!areaGeojson) return null;
+    if (!selectedZones.length) return areaGeojson;
+    const features = areaGeojson.features.filter(
+      (f) => !selectedZones.includes(getZoneName(f)),
+    );
+    return { ...areaGeojson, features };
+  }, [areaGeojson, selectedZones]);
 
   const basinStyle = useMemo(
     () => ({
@@ -856,7 +866,7 @@ export default function AdminMap({
         {riversGroup1 ? <GeoJSON key="rivers-group-1" data={riversGroup1 as any} style={riverStyle1 as any} /> : null}
         {riversGroup2 ? <GeoJSON key="rivers-group-2" data={riversGroup2 as any} style={riverStyle2 as any} /> : null}
         {riversGroup3 ? <GeoJSON key="rivers-group-3" data={riversGroup3 as any} style={riverStyle3 as any} /> : null}
-        {areaGeojson ? <GeoJSON key="areas" data={areaGeojson as any} style={areaStyle as any} onEachFeature={areaZoneOnEach as any} /> : null}
+        {unselectedAreaGeojson ? <GeoJSON key={`areas-${selectedZones.join("|")}`} data={unselectedAreaGeojson as any} style={areaStyle as any} onEachFeature={areaZoneOnEach as any} /> : null}
         {selectedZoneGeojson ? (
           <GeoJSON
             key={`selected-zone-${selectedZones.length ? selectedZones.join("|") : "none"}`}
