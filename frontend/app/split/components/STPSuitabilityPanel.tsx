@@ -58,6 +58,7 @@ type Props = {
   onPresentToMain:     (layer: STPWmsLayer | null) => void;
   onAreaLayer?:        (layer: STPWmsLayer | null) => void;
   onAreaPresentToMain?:(layer: STPWmsLayer | null) => void;
+  onRequestMldKeyboard?: (currentValue: string, onChange: (val: string) => void) => void;
 };
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
@@ -95,6 +96,7 @@ export default function STPSuitabilityPanel({
   onPresentToMain,
   onAreaLayer,
   onAreaPresentToMain,
+  onRequestMldKeyboard,
 }: Props) {
   /* ── raw data ── */
   const [conditions,   setConditions]   = useState<RasterRow[]>([]);
@@ -325,7 +327,7 @@ export default function STPSuitabilityPanel({
       )}
 
       {/* Zone chips */}
-      <div style={C.sec}>
+      {/* <div style={C.sec}>
         <p style={C.label}>Analysis Zone</p>
         {selectedZones.length === 0 ? (
           <div style={{ padding: "3px 5px", borderRadius: 3, background: "#fef9c3", border: "1px solid #fde047", fontSize: 7, color: "#854d0e", fontWeight: 600 }}>
@@ -338,7 +340,7 @@ export default function STPSuitabilityPanel({
             ))}
           </div>
         )}
-      </div>
+      </div> */}
 
       {/* Tab bar + lock button */}
       {fetchState === "ok" && (
@@ -457,40 +459,40 @@ export default function STPSuitabilityPanel({
       )}
 
       {/* Buttons */}
-      <div style={{ padding: "5px 7px", display: "flex", flexDirection: "column", gap: 3, background: "#eff6ff", flexShrink: 0 }}>
+      <div style={{ padding: "3px 7px", display: "flex", flexDirection: "column", gap: 3, background: "#eff6ff", flexShrink: 0 }}>
         {selCond.size === 0 && fetchState === "ok" && (
-          <p style={{ margin: "0 0 2px", fontSize: 7, color: "#c2410c", fontWeight: 600 }}>⚠ Select at least 1 condition</p>
+          <p style={{ margin: "0 0 1px", fontSize: 7, color: "#c2410c", fontWeight: 600 }}>⚠ Select at least 1 condition</p>
         )}
-        <button
-          type="button"
-          disabled={!canAnalyze}
-          onClick={handleAnalyze}
-          title={selectedZones.length === 0 ? "Select zones first" : selCond.size === 0 ? "Select at least one condition" : ""}
-          style={C.btn(analyzing ? "#93c5fd" : "#2563eb", !canAnalyze)}
-        >
-          {analyzing ? "Analyzing…" : "Analyze Suitability"}
-        </button>
-
-        {wmsLayer && (
-          <>
-            <button
-              type="button"
-              onClick={() => {
-                if (isOnMain) { onPresentToMain(null); setIsOnMain(false); }
-                else { onPresentToMain(wmsLayer); setIsOnMain(true); }
-              }}
-              style={{ ...C.btn("#fff"), border: `1.5px solid ${isOnMain ? "#dc2626" : "#2563eb"}`, color: isOnMain ? "#dc2626" : "#2563eb" }}
-            >
-              {isOnMain ? "✕ Hide from Main" : "↑ Present on Main"}
-            </button>
+        {/* Row 1: Analyze + Clear */}
+        <div style={{ display: "flex", gap: 3 }}>
+          <button
+            type="button"
+            disabled={!canAnalyze}
+            onClick={handleAnalyze}
+            title={selectedZones.length === 0 ? "Select zones first" : selCond.size === 0 ? "Select at least one condition" : ""}
+            style={{ flex: 1, padding: "3px 5px", fontSize: 8, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.05em", borderRadius: 4, border: "none", cursor: !canAnalyze ? "not-allowed" : "pointer", background: !canAnalyze ? "#94a3b8" : analyzing ? "#93c5fd" : "#2563eb", color: "#fff" }}
+          >
+            {analyzing ? "…" : "Analyze"}
+          </button>
+          {wmsLayer && (
             <button
               type="button"
               onClick={() => { setWmsLayer(null); setResult(null); onResultLayer(null); if (isOnMain) { onPresentToMain(null); setIsOnMain(false); } }}
-              style={{ ...C.btn("#fff"), border: "1px solid #fca5a5", color: "#dc2626" }}
+              style={{ padding: "3px 7px", fontSize: 8, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.05em", borderRadius: 4, border: "1px solid #fca5a5", background: "#fff", color: "#dc2626", cursor: "pointer" }}
             >
               Clear
             </button>
-          </>
+          )}
+        </div>
+        {/* Row 2: Show on Main */}
+        {wmsLayer && (
+          <button
+            type="button"
+            onClick={() => { if (isOnMain) { onPresentToMain(null); setIsOnMain(false); } else { onPresentToMain(wmsLayer); setIsOnMain(true); } }}
+            style={{ width: "100%", padding: "3px 5px", fontSize: 8, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.05em", borderRadius: 4, border: `1.5px solid ${isOnMain ? "#dc2626" : "#2563eb"}`, background: "#fff", color: isOnMain ? "#dc2626" : "#2563eb", cursor: "pointer" }}
+          >
+            {isOnMain ? "✕ Hide from Main" : "↑ Show on Main Screen"}
+          </button>
         )}
       </div>
 
@@ -516,11 +518,15 @@ export default function STPSuitabilityPanel({
                   type="text"
                   inputMode="decimal"
                   value={areaInputs.mldCapacity}
-                  onChange={e => {
-                    const raw = e.target.value;
-                    setAreaInputs(p => ({ ...p, mldCapacity: raw === "" ? 0 : parseFloat(raw) || p.mldCapacity }));
-                  }}
-                  style={{ width: "100%", fontSize: 8, padding: "2px 4px", borderRadius: 3, border: "1px solid #bfdbfe", boxSizing: "border-box" as const }}
+                  readOnly
+                  onClick={() => onRequestMldKeyboard?.(
+                    String(areaInputs.mldCapacity),
+                    (val) => {
+                      const num = parseFloat(val);
+                      setAreaInputs(p => ({ ...p, mldCapacity: isNaN(num) ? 0 : num }));
+                    }
+                  )}
+                  style={{ width: "100%", fontSize: 8, padding: "2px 4px", borderRadius: 3, border: "1px solid #bfdbfe", boxSizing: "border-box" as const, cursor: "pointer" }}
                 />
               </div>
 

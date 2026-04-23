@@ -228,6 +228,10 @@ export default function SplitViewerWindow({
   const [msgInput, setMsgInput] = useState("");
   const [showMsgKeyboard, setShowMsgKeyboard] = useState(false);
   const msgEndRef = useRef<HTMLDivElement>(null);
+  const stpKeyboardRef = useRef<HTMLDivElement>(null);
+  const [stpKbValue, setStpKbValue] = useState("");
+  const stpKbOnChangeRef = useRef<((val: string) => void) | null>(null);
+  const [showStpKeyboard, setShowStpKeyboard] = useState(false);
 
   // Auto-scroll message list to bottom whenever a new message arrives
   useEffect(() => {
@@ -296,11 +300,17 @@ export default function SplitViewerWindow({
           setLocalEditingTitle(false);
         }
       }
+
+      // 5. STP keyboard click outside
+      if (showStpKeyboard && stpKeyboardRef.current && !stpKeyboardRef.current.contains(target)) {
+        setShowStpKeyboard(false);
+        stpKbOnChangeRef.current = null;
+      }
     };
 
     window.addEventListener("pointerdown", handleClickOutside, { capture: true });
     return () => window.removeEventListener("pointerdown", handleClickOutside, { capture: true });
-  }, [showToolsMenu, showMsgKeyboard, editingStickyNoteId, onOpenStickyEditor, localEditingTitle]);
+  }, [showToolsMenu, showMsgKeyboard, editingStickyNoteId, onOpenStickyEditor, localEditingTitle, showStpKeyboard]);
 
 
   useEffect(() => {
@@ -871,6 +881,24 @@ export default function SplitViewerWindow({
                 />
               </div>
             ) : null}
+            {/* STP MLD keyboard — opens in map area when MLD input is tapped */}
+            {showStpKeyboard ? (
+              <div ref={stpKeyboardRef} className="absolute inset-0 pointer-events-none z-[9999]" style={{ transform: "none" }}>
+                <VirtualKeyboard
+                  numeric
+                  value={stpKbValue}
+                  onChange={(val) => {
+                    if (val.endsWith("\n")) {
+                      setShowStpKeyboard(false);
+                      stpKbOnChangeRef.current = null;
+                      return;
+                    }
+                    setStpKbValue(val);
+                    stpKbOnChangeRef.current?.(val);
+                  }}
+                />
+              </div>
+            ) : null}
             </div>
             {activeCriteria.length > 0 && (
               <>
@@ -914,6 +942,11 @@ export default function SplitViewerWindow({
                     onPresentToMain={(layer) => onSTPPresentToMain?.(layer)}
                     onAreaLayer={(layer) => setStpAreaLayer(layer)}
                     onAreaPresentToMain={(layer) => onSTPAreaPresentToMain?.(layer)}
+                    onRequestMldKeyboard={(currentValue, onChange) => {
+                      setStpKbValue(currentValue);
+                      stpKbOnChangeRef.current = onChange;
+                      setShowStpKeyboard(true);
+                    }}
                   />
                 </div>
               </>

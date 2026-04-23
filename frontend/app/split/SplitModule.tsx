@@ -97,7 +97,7 @@ export default function SplitModule() {
   const [basemap, setBasemap] = useState<BasemapType>("terrain");
   const [showBasemap, setShowBasemap] = useState(true);
   const [masterCollapsed, setMasterCollapsed] = useState(false);
-  const [viewerScale, setViewerScale] = useState(1);
+  const [viewerScale, setViewerScale] = useState(0.75);
   const [mapView, setMapView] = useState<{ center: [number, number]; zoom: number } | null>(null);
   const [selectedZones, setSelectedZones] = useState<string[]>([]);
   const [stickyNotes, setStickyNotes] = useState<StickyNote[]>([]);
