@@ -108,8 +108,15 @@ export default function SplitModule() {
   const [viewerMessages, setViewerMessages] = useState<ViewerMessage[]>([]);
   const [aviralCriteria, setAviralCriteria] = useState<string[]>([]);
   const [activeModule, setActiveModule] = useState<"Aviral Ganga" | "Nirmal Ganga" | "STP Suitability">("Aviral Ganga");
-  const [mainStpLayer,     setMainStpLayer]     = useState<STPWmsLayer | null>(null);
-  const [mainStpAreaLayer, setMainStpAreaLayer] = useState<STPWmsLayer | null>(null);
+  const [mainStpLayers,     setMainStpLayers]     = useState<Record<string, STPWmsLayer | null>>({});
+  const [mainStpAreaLayers, setMainStpAreaLayers] = useState<Record<string, STPWmsLayer | null>>({});
+  const [stpResetKey, setStpResetKey] = useState(0);
+
+  const handleResetAllSTP = useCallback(() => {
+    setStpResetKey(k => k + 1);
+    setMainStpLayers({});
+    setMainStpAreaLayers({});
+  }, []);
   const [screenNames, setScreenNames] = useState<Record<string, string>>({
     top: "Screen 1",
     topSecondary: "Screen 2",
@@ -440,8 +447,8 @@ export default function SplitModule() {
           onStickyMapClick={handleMasterMapClick}
           activeCriteria={aviralCriteria}
           screenNames={screenNames}
-          stpWmsLayer={mainStpLayer}
-          stpAreaWmsLayer={mainStpAreaLayer}
+          stpWmsLayers={Object.values(mainStpLayers).filter(Boolean) as STPWmsLayer[]}
+          stpAreaWmsLayers={Object.values(mainStpAreaLayers).filter(Boolean) as STPWmsLayer[]}
         />
       </div>
 
@@ -495,8 +502,9 @@ export default function SplitModule() {
           onRevealNote={(noteId) => handleRevealNote(noteId, viewer.side)}
           onHideNote={(noteId) => handleHideNote(noteId, viewer.side)}
           activeModule={activeModule}
-          onSTPPresentToMain={(layer) => setMainStpLayer(layer)}
-          onSTPAreaPresentToMain={(layer) => setMainStpAreaLayer(layer)}
+          onSTPPresentToMain={(layer) => setMainStpLayers(prev => ({ ...prev, [viewer.side]: layer }))}
+          onSTPAreaPresentToMain={(layer) => setMainStpAreaLayers(prev => ({ ...prev, [viewer.side]: layer }))}
+          stpResetKey={stpResetKey}
         />
       ))}
 
@@ -524,7 +532,11 @@ export default function SplitModule() {
         aviralCriteria={aviralCriteria}
         onAviralCriteriaChange={setAviralCriteria}
         activeModule={activeModule}
-        onActiveModuleChange={setActiveModule}
+        onActiveModuleChange={(mod) => {
+          if (mod === "Aviral Ganga") handleResetAllSTP();
+          setActiveModule(mod);
+        }}
+        onResetAllSTP={handleResetAllSTP}
       />
     </div>
   );

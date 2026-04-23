@@ -47,6 +47,7 @@ export type SplitViewerWindowProps = {
   activeModule?: "Aviral Ganga" | "Nirmal Ganga" | "STP Suitability";
   onSTPPresentToMain?:     (layer: STPWmsLayer | null) => void;
   onSTPAreaPresentToMain?: (layer: STPWmsLayer | null) => void;
+  stpResetKey?: number;
 };
 
 const BEZEL_ACCENT = "#5f5099 ";
@@ -202,9 +203,18 @@ export default function SplitViewerWindow({
   activeModule = "Aviral Ganga",
   onSTPPresentToMain,
   onSTPAreaPresentToMain,
+  stpResetKey = 0,
 }: SplitViewerWindowProps) {
   const [stpWmsLayer,  setStpWmsLayer]  = useState<STPWmsLayer | null>(null);
   const [stpAreaLayer, setStpAreaLayer] = useState<STPWmsLayer | null>(null);
+
+  useEffect(() => {
+    if (stpResetKey === 0) return;
+    setStpWmsLayer(null);
+    setStpAreaLayer(null);
+    onSTPPresentToMain?.(null);
+    onSTPAreaPresentToMain?.(null);
+  }, [stpResetKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const cfg = sideConfig[side];
   // Extract the rotation angle from the CSS string e.g. "rotate(-90deg)" → -90
   const rotationAngle = parseInt(cfg.rotation.match(/-?\d+/)?.[0] ?? "0", 10);
@@ -588,27 +598,7 @@ export default function SplitViewerWindow({
               {title}
             </span>
           )}
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            {/* × hide this screen */}
-            {onHideSelf && (
-              <button
-                type="button"
-                title="Hide this screen"
-                onPointerDown={(e) => e.stopPropagation()}
-                onPointerMove={(e) => e.stopPropagation()}
-                onPointerUp={(e) => e.stopPropagation()}
-                onClick={onHideSelf}
-                style={{
-                  width: 18, height: 18, borderRadius: "50%",
-                  background: "rgba(239,68,68,0.25)", border: "1px solid rgba(239,68,68,0.5)",
-                  color: "#fca5a5", fontSize: 11, fontWeight: 900, lineHeight: 1,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  cursor: "pointer", flexShrink: 0,
-                }}
-              >
-                ×
-              </button>
-            )}
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             {/* 3-dot tools menu */}
             <button
               type="button"
@@ -633,6 +623,26 @@ export default function SplitViewerWindow({
                 <span key={i} style={{ display: "block", width: 5, height: 5, borderRadius: "50%", background: "#fff" }} />
               ))}
             </button>
+            {/* × hide this screen */}
+            {onHideSelf && (
+              <button
+                type="button"
+                title="Hide this screen"
+                onPointerDown={(e) => e.stopPropagation()}
+                onPointerMove={(e) => e.stopPropagation()}
+                onPointerUp={(e) => e.stopPropagation()}
+                onClick={onHideSelf}
+                style={{
+                  width: 18, height: 18, borderRadius: "50%",
+                  background: "rgba(239,68,68,0.25)", border: "1px solid rgba(239,68,68,0.5)",
+                  color: "#fca5a5", fontSize: 11, fontWeight: 900, lineHeight: 1,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  cursor: "pointer", flexShrink: 0,
+                }}
+              >
+                ×
+              </button>
+            )}
           </div>
         </div>
 
@@ -897,6 +907,7 @@ export default function SplitViewerWindow({
                 />
                 <div style={{ width: 160, flexShrink: 0, overflow: "hidden" }}>
                   <STPSuitabilityPanel
+                    key={stpResetKey}
                     selectedZones={selectedZones}
                     areaGeojson={areaGeojson}
                     onResultLayer={(layer) => setStpWmsLayer(layer)}

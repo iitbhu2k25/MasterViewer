@@ -516,8 +516,10 @@ type Props = {
   rwqSeason?: RwqSeason;
   onStpDataLoaded?: (stps: any[]) => void;
   screenNames?: Record<string, string>;
-  stpWmsLayer?:     { url: string; layers: string } | null;
-  stpAreaWmsLayer?: { url: string; layers: string } | null;
+  stpWmsLayer?:      { url: string; layers: string } | null;
+  stpAreaWmsLayer?:  { url: string; layers: string } | null;
+  stpWmsLayers?:     { url: string; layers: string }[];
+  stpAreaWmsLayers?: { url: string; layers: string }[];
 };
 
 export default function AdminMap({
@@ -549,8 +551,10 @@ export default function AdminMap({
   rwqSeason = "monsoon",
   onStpDataLoaded,
   screenNames,
-  stpWmsLayer     = null,
-  stpAreaWmsLayer = null,
+  stpWmsLayer      = null,
+  stpAreaWmsLayer  = null,
+  stpWmsLayers     = [],
+  stpAreaWmsLayers = [],
 }: Props) {
   const tileConfig = basemap ? BASEMAP_TILES[basemap] : BASEMAP_TILES.streets;
 
@@ -795,6 +799,7 @@ export default function AdminMap({
             url={stpWmsLayer.url}
             params={{ layers: stpWmsLayer.layers, format: "image/png", transparent: true, version: "1.1.0" } as any}
             opacity={0.7}
+            zIndex={500}
           />
         )}
         {stpAreaWmsLayer && (
@@ -803,8 +808,27 @@ export default function AdminMap({
             url={stpAreaWmsLayer.url}
             params={{ layers: stpAreaWmsLayer.layers, format: "image/png", transparent: true, version: "1.1.0" } as any}
             opacity={0.85}
+            zIndex={501}
           />
         )}
+        {stpWmsLayers.map((lyr, i) => (
+          <WMSTileLayer
+            key={`stp-wms-multi-${lyr.layers}-${i}`}
+            url={lyr.url}
+            params={{ layers: lyr.layers, format: "image/png", transparent: true, version: "1.1.0" } as any}
+            opacity={0.7}
+            zIndex={500 + i}
+          />
+        ))}
+        {stpAreaWmsLayers.map((lyr, i) => (
+          <WMSTileLayer
+            key={`stp-area-multi-${lyr.layers}-${i}`}
+            url={lyr.url}
+            params={{ layers: lyr.layers, format: "image/png", transparent: true, version: "1.1.0" } as any}
+            opacity={0.85}
+            zIndex={510 + i}
+          />
+        ))}
         {activeCriteria.includes("Tributary & drain flow") && (
           <DrainWFSLayer areaGeojson={areaGeojson} selectedZones={selectedZones} />
         )}

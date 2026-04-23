@@ -28,6 +28,7 @@ type SplitMasterPanelProps = {
   onAviralCriteriaChange?: (criteria: string[]) => void;
   activeModule: "Aviral Ganga" | "Nirmal Ganga" | "STP Suitability";
   onActiveModuleChange: (module: "Aviral Ganga" | "Nirmal Ganga" | "STP Suitability") => void;
+  onResetAllSTP?: () => void;
 };
 
 const basemapOptions: { key: BasemapType; label: string; icon: string }[] = [
@@ -67,6 +68,7 @@ export default function SplitMasterPanel({
   onAviralCriteriaChange,
   activeModule,
   onActiveModuleChange,
+  onResetAllSTP,
 }: SplitMasterPanelProps) {
   const [showScreensDropdown, setShowScreensDropdown] = useState(false);
   const [showViewerSize, setShowViewerSize] = useState(false);
@@ -96,6 +98,7 @@ export default function SplitMasterPanel({
   const allZonesSelected = zones.length > 0 && zones.every((z) => selectedZones.includes(z));
   const [showToolsSection, setShowToolsSection] = useState(false);
   const [toolsSubMenu, setToolsSubMenu] = useState<"none" | "colors" | "shapes">("none");
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [selectedColor, setSelectedColor] = useState("#fde047");
   const [selectedShape, setSelectedShape] = useState<StickyNote["shape"]>("sticky");
 
@@ -623,6 +626,24 @@ export default function SplitMasterPanel({
                     </svg>
                   </button>
 
+                  {/* Reset button — inline with other tools */}
+                  <button
+                    type="button"
+                    title="Reset (reload page)"
+                    onClick={() => setShowResetConfirm(true)}
+                    style={{
+                      width: 32, height: 32, borderRadius: 7,
+                      border: "1px solid rgba(239,68,68,0.4)",
+                      background: "rgba(239,68,68,0.12)",
+                      display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+                    }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fca5a5" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                      <path d="M3 3v5h5"/>
+                    </svg>
+                  </button>
+
                 </div>
 
                 {/* Color swatches for sticky note */}
@@ -683,6 +704,7 @@ export default function SplitMasterPanel({
                     ))}
                   </div>
                 )}
+
               </div>
             </div>
           ) : null}
@@ -690,6 +712,70 @@ export default function SplitMasterPanel({
         {/* end left content wrapper */}
         </div>
       </div>
+
+      {/* Reset confirmation modal */}
+      {showResetConfirm && (
+        <div
+          style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+          }}
+        >
+          <div
+            style={{
+              background: "#1e1b3a",
+              border: "1px solid rgba(239,68,68,0.4)",
+              borderRadius: 16,
+              padding: "28px 32px",
+              width: 320,
+              boxShadow: "0 24px 60px rgba(0,0,0,0.6)",
+              display: "flex", flexDirection: "column", alignItems: "center", gap: 16,
+            }}
+          >
+            {/* Icon */}
+            <div style={{ width: 48, height: 48, borderRadius: "50%", background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fca5a5" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                <path d="M3 3v5h5"/>
+              </svg>
+            </div>
+            {/* Title */}
+            <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#f1f5f9", textAlign: "center" }}>
+              Confirm Reset
+            </p>
+            {/* Body */}
+            <p style={{ margin: 0, fontSize: 12, color: "#94a3b8", textAlign: "center", lineHeight: 1.6 }}>
+              All data will be cleared and the page will reload. This action cannot be undone.
+            </p>
+            {/* Buttons */}
+            <div style={{ display: "flex", gap: 12, width: "100%", marginTop: 4 }}>
+              <button
+                type="button"
+                onClick={() => setShowResetConfirm(false)}
+                style={{
+                  flex: 1, padding: "9px 0", borderRadius: 8,
+                  background: "rgba(255,255,255,0.07)", border: "1px solid rgba(148,163,184,0.3)",
+                  color: "#cbd5e1", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                }}
+              >
+                No
+              </button>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                style={{
+                  flex: 1, padding: "9px 0", borderRadius: 8,
+                  background: "rgba(239,68,68,0.2)", border: "1px solid rgba(239,68,68,0.5)",
+                  color: "#fca5a5", fontSize: 13, fontWeight: 700, cursor: "pointer",
+                }}
+              >
+                Yes, Reset
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

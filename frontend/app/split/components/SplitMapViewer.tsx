@@ -562,6 +562,7 @@ export default function SplitMapViewer({
           url={stpWmsLayer.url}
           params={{ layers: stpWmsLayer.layers, format: "image/png", transparent: true, version: "1.1.0" } as any}
           opacity={0.7}
+          zIndex={500}
         />
       )}
 
@@ -571,6 +572,7 @@ export default function SplitMapViewer({
           url={stpAreaLayer.url}
           params={{ layers: stpAreaLayer.layers, format: "image/png", transparent: true, version: "1.1.0" } as any}
           opacity={0.85}
+          zIndex={501}
         />
       )}
 

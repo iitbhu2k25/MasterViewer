@@ -513,9 +513,13 @@ export default function STPSuitabilityPanel({
               <div>
                 <p style={{ margin: "0 0 1px", fontSize: 7, fontWeight: 700, textTransform: "uppercase", color: "#1d4ed8" }}>MLD Capacity</p>
                 <input
-                  type="number" min={0.1} step={0.1}
+                  type="text"
+                  inputMode="decimal"
                   value={areaInputs.mldCapacity}
-                  onChange={e => setAreaInputs(p => ({ ...p, mldCapacity: parseFloat(e.target.value) || 0.1 }))}
+                  onChange={e => {
+                    const raw = e.target.value;
+                    setAreaInputs(p => ({ ...p, mldCapacity: raw === "" ? 0 : parseFloat(raw) || p.mldCapacity }));
+                  }}
                   style={{ width: "100%", fontSize: 8, padding: "2px 4px", borderRadius: 3, border: "1px solid #bfdbfe", boxSizing: "border-box" as const }}
                 />
               </div>
