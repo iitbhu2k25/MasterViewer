@@ -235,7 +235,12 @@ export default function SplitViewerWindow({
 
   // Auto-scroll message list to bottom whenever a new message arrives
   useEffect(() => {
-    msgEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (msgEndRef.current) {
+      const parent = msgEndRef.current.parentElement;
+      if (parent) {
+        parent.scrollTo({ top: parent.scrollHeight, behavior: "smooth" });
+      }
+    }
   }, [messages]);
   const editingStickyNoteId = Object.keys(activeEditors).find((id) => activeEditors[id] === side) || null;
   const editedNote = editingStickyNoteId ? stickyNotes.find((n) => n.id === editingStickyNoteId) : null;
@@ -511,13 +516,7 @@ export default function SplitViewerWindow({
     };
   }, [cfg, scaledW, scaledH]);
 
-  // When scale changes, tell Leaflet to recompute its container size
-  useEffect(() => {
-    const t = window.setTimeout(() => window.dispatchEvent(new Event("resize")), 150);
-    return () => window.clearTimeout(t);
-  }, [scale]);
-
-  const dragCursor = cfg.axis === "x" ? "ew-resize" : "ns-resize";
+const dragCursor = cfg.axis === "x" ? "ew-resize" : "ns-resize";
   const posStyle = visible ? cfg.getVisibleStyle(offset) : cfg.getHiddenStyle(offset);
 
   return (

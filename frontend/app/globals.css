@@ -18,6 +18,7 @@ body.holistic-fullscreen-mode main {
   padding: 0 !important;
   height: 100dvh !important;
   min-height: unset !important;
+  max-height: 100dvh !important;
   max-width: 100vw !important;
   width: 100vw !important;
   flex: none !important;
@@ -27,7 +28,9 @@ body.holistic-fullscreen-mode main {
 body.holistic-fullscreen-mode main > div,
 body.holistic-fullscreen-mode [data-nextjs-scroll-focus-boundary] {
   height: 100dvh !important;
+  max-height: 100dvh !important;
   min-height: unset !important;
+  overflow: hidden !important;
 }
 
 /* ── Split page: full bleed — kill ALL layout chrome ── */
@@ -37,7 +40,10 @@ body.holistic-fullscreen-mode {
   margin: 0 !important;
   padding: 0 !important;
   height: 100dvh !important;
+  max-height: 100dvh !important;
   min-height: unset !important;
+  /* Prevent body flex layout from ever exceeding viewport */
+  display: block !important;
 }
 
 body.holistic-fullscreen-mode > * {
@@ -48,6 +54,15 @@ body.holistic-fullscreen-mode > * {
 body.holistic-fullscreen-mode .flex-col {
   padding: 0 !important;
   margin: 0 !important;
+}
+
+/* Prevent any element inside fullscreen mode from growing the scroll height */
+body.holistic-fullscreen-mode #app-top-header,
+body.holistic-fullscreen-mode #app-navbar,
+body.holistic-fullscreen-mode #app-footer {
+  height: 0 !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
 }
 
 /* ── Split viewer panels ── */
@@ -101,4 +116,11 @@ body.holistic-fullscreen-mode .flex-col {
   left: 0 !important;
   width: 100% !important;
   height: 100% !important;
+  min-height: 0 !important;
+  max-height: 100% !important;
+}
+
+.split-main-map .leaflet-container .leaflet-pane,
+.split-main-map .leaflet-container .leaflet-map-pane {
+  min-height: 0 !important;
 }

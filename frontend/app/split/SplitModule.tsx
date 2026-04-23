@@ -127,6 +127,7 @@ export default function SplitModule() {
 /** noteId → viewer sides that have clicked "Reveal" for that note */
   const [revealedNotes, setRevealedNotes] = useState<Record<string, string[]>>({});
   const containerRef = useRef<HTMLDivElement>(null);
+  const mainMapRef = useRef<HTMLDivElement>(null);
 
   const handleRevealNote = useCallback((noteId: string, side: string) => {
     setRevealedNotes((prev) => ({
@@ -375,11 +376,6 @@ export default function SplitModule() {
     };
   }, []);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => window.dispatchEvent(new Event("resize")), 200);
-    return () => window.clearTimeout(timer);
-  }, []);
-
   // Dynamic offset: each top viewer is effectiveW*scale px wide; half + gap keeps them from overlapping
   const topBaseW = aviralCriteria.length > 0 ? Math.round(420 * 1.2) : 420;
   const topPairOffset = Math.round((topBaseW * viewerScale) / 2) + 20;
@@ -401,8 +397,7 @@ export default function SplitModule() {
   return (
     <div
       ref={containerRef}
-      className="fixed inset-0 h-screen w-screen overflow-hidden bg-[#0a0e1a]"
-      style={{ width: "100vw", height: "100dvh" }}
+      className="fixed inset-0 overflow-hidden bg-[#0a0e1a]"
     >
       <div className="absolute right-4 top-4 z-[950]">
         <a
@@ -419,7 +414,14 @@ export default function SplitModule() {
 
   
 
-      <div className="absolute inset-0 split-main-map">
+      <div
+        ref={mainMapRef}
+        className="absolute inset-0 split-main-map"
+        style={{
+          width: "100%",
+          height: "100%",
+        }}
+      >
         <AdminMap
           selectedZones={selectedZones}
           areaGeojson={layerState.area ? areaGeojson : null}

@@ -15,18 +15,35 @@ import StpPointLayer from "../../../shared/map-layers/StpPointLayer";
 function MapResizer() {
   const map = useMap();
   useEffect(() => {
-    // Fire invalidateSize at multiple intervals to catch any layout shift
-    const t1 = setTimeout(() => map.invalidateSize(), 50);
-    const t2 = setTimeout(() => map.invalidateSize(), 200);
-    const t3 = setTimeout(() => map.invalidateSize(), 500);
-    // Also re-measure on any window resize
-    const onResize = () => map.invalidateSize();
-    window.addEventListener("resize", onResize);
+    const container = map.getContainer();
+    let lastW = container.offsetWidth;
+    let lastH = container.offsetHeight;
+
+    const invalidate = () => map.invalidateSize(false);
+
+    // Only call invalidateSize when the container's pixel size actually changes.
+    // Using window "resize" events causes false triggers from synthetic resize
+    // events fired by React state changes (sticky notes, etc.) and browser
+    // reflows, which makes Leaflet read a wrong height and shrink the map.
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const w = Math.round(entry.contentRect.width);
+      const h = Math.round(entry.contentRect.height);
+      if (w !== lastW || h !== lastH) {
+        lastW = w;
+        lastH = h;
+        invalidate();
+      }
+    });
+    ro.observe(container);
+
+    // Initial invalidate after layout settles
+    const t = setTimeout(invalidate, 100);
+
     return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-      clearTimeout(t3);
-      window.removeEventListener("resize", onResize);
+      clearTimeout(t);
+      ro.disconnect();
     };
   }, [map]);
   return null;
@@ -181,25 +198,6 @@ function MapViewBroadcaster({ onViewChange }: { onViewChange?: (center: [number,
   return null;
 }
 
-function InvalidateMapSize() {
-  const map = useMap();
-
-  useEffect(() => {
-    const refresh = () => map.invalidateSize(false);
-    refresh();
-    const timeoutId = window.setTimeout(refresh, 180);
-    window.addEventListener("resize", refresh);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-      window.removeEventListener("resize", refresh);
-    };
-  }, [map]);
-
-  return null;
-}
-
-
 function StickyMapClickHandler({
   enabled,
   onMapClick,
@@ -252,7 +250,7 @@ function StickyNotesOverlay({
   screenNames?: Record<string, string>;
 }) {
   const map = useMap();
-  const [version, setVersion] = useState(0);
+  const [, forceUpdate] = useState(0);
 
   const sideToLabel: Record<string, string> = {
     top: screenNames?.top ?? "Screen 1",
@@ -264,16 +262,13 @@ function StickyNotesOverlay({
   };
 
   useEffect(() => {
-    const update = () => setVersion((v) => v + 1);
+    const update = () => forceUpdate((v) => v + 1);
     map.on("move zoom resize", update);
     return () => { map.off("move zoom resize", update); };
   }, [map]);
 
   return (
-    <div
-      key={version}
-      style={{ position: "absolute", inset: 0, zIndex: 650, pointerEvents: "none" }}
-    >
+    <div style={{ position: "absolute", inset: 0, zIndex: 650, pointerEvents: "none" }}>
       {stickyNotes.map((note) => {
         const point = map.latLngToContainerPoint([note.lat, note.lng]);
         const isEditing = editingStickyNoteId === note.id;
@@ -768,12 +763,27 @@ export default function AdminMap({
     }
   };
 
+  const rootStyle = borderless
+    ? ({
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        minHeight: "100%",
+        maxHeight: "100%",
+      } as const)
+    : undefined;
+
   return (
-    <section className={`relative h-full overflow-hidden ${borderless ? '' : 'rounded-xl border-4 border-emerald-500 shadow'} bg-white`}>
+    <section
+      className={`relative h-full overflow-hidden ${borderless ? '' : 'rounded-xl border-4 border-emerald-500 shadow'} bg-white`}
+      style={rootStyle}
+    >
       <MapContainer
         center={INDIA_CENTER}
         zoom={INDIA_ZOOM}
         className="h-full w-full"
+        style={{ width: "100%", height: "100%", minHeight: "100%", maxHeight: "100%" }}
         zoomControl={false}
         dragging={interactive}
         touchZoom={interactive}
@@ -885,7 +895,6 @@ export default function AdminMap({
           screenNames={screenNames}
         />
         <StickyMapClickHandler enabled={stickyMode} onMapClick={onStickyMapClick} />
-        <InvalidateMapSize />
         <FitMapToGeoJSON data={selectedZoneGeojson || areaGeojson || basinGeojson} />
         <MapViewBroadcaster onViewChange={onViewChange} />
       </MapContainer>

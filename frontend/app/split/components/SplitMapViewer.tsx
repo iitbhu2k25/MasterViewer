@@ -78,6 +78,40 @@ function MapInteractivity({ interactive }: { interactive: boolean }) {
   return null;
 }
 
+function MapResizer() {
+  const map = useMap();
+
+  useEffect(() => {
+    const container = map.getContainer();
+    let lastW = container.offsetWidth;
+    let lastH = container.offsetHeight;
+
+    const invalidate = () => map.invalidateSize(false);
+
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const w = Math.round(entry.contentRect.width);
+      const h = Math.round(entry.contentRect.height);
+      if (w !== lastW || h !== lastH) {
+        lastW = w;
+        lastH = h;
+        invalidate();
+      }
+    });
+    ro.observe(container);
+
+    const t = window.setTimeout(invalidate, 100);
+
+    return () => {
+      window.clearTimeout(t);
+      ro.disconnect();
+    };
+  }, [map]);
+
+  return null;
+}
+
 function StickyNotesLayer({
   stickyNotes,
   editingStickyNoteId,
@@ -519,6 +553,7 @@ export default function SplitMapViewer({
       keyboard={interactive}
       attributionControl={false}
     >
+      <MapResizer />
       {showBasemap ? <TileLayer key={basemap} url={tileConfig.url} attribution={tileConfig.attribution} /> : null}
 
       {layerState.basin && basinGeojson ? (
