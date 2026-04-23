@@ -707,10 +707,10 @@ class STP_Area:
         gdf["area_ha"] = gdf.area / 10000
         return gdf
     
-    def _find_suitable_cluster(self,mld_capacity:float,treatment_technology:float,custom_land_per_mld:float,layer_name:str):
+    async def _find_suitable_cluster(self,mld_capacity:float,treatment_technology:float,custom_land_per_mld:float,layer_name:str):
         req_ha=(mld_capacity*treatment_technology) +custom_land_per_mld
         req_m2=req_ha*10000
-        data, rx, ry, transform, crs =  self._read_raster(layer_name)
+        data, rx, ry, transform, crs =  await self._read_raster(layer_name)
         threshold_mask = self._apply_threshold_classification(data, self.SUITABILITY_THRESHOLD)
         kernel_size, required_pixels = self._calculate_required_pixels(req_m2, rx, ry)
         suitable_mask = self._find_suitable_areas(threshold_mask, kernel_size, required_pixels)
@@ -739,6 +739,8 @@ class STP_Area:
     def _cluster_mean_elev(self,geom, elev, transform):
         vals = []
         for x, y in geom.exterior.coords:
+            if np.isnan(x) or np.isnan(y):
+                continue
             r, c = rasterio.transform.rowcol(transform, x, y)
             if 0 <= r < elev.shape[0] and 0 <= c < elev.shape[1]:
                 vals.append(elev[r, c])
@@ -767,19 +769,22 @@ class STP_Area:
         return tuple(nodes[np.argmin(d)])
     
 
-    def _find_suitable_path(self,clusters:gpd.GeoDataFrame,crs:str,location:list):
-        longitude, latitude =self._centroid_location(location)
+    def _find_suitable_path(self, clusters: gpd.GeoDataFrame, centroid):
+        longitude, latitude = centroid.x, centroid.y
         elev, etrans, ref = self._read_elevation(longitude, latitude)
         clusters = self._filter_by_elevation(clusters, elev, etrans, ref)
+        return clusters
     
 
 class STPsuitabilityMapper(STP_Area):
     def __init__(self, config: GeoConfig = None):
+        super().__init__()
         self.config = config or GeoConfig()
         self.processor = RasterProcess(self.config)
         self.BASE_DIR=Settings().BASE_DIR
         self.TEMP_DIR=Settings().TEMP_DIR+"/STP_suitability"
         os.makedirs(self.TEMP_DIR, exist_ok=True)
+
     
     def get_vector_file(self, vector_name: str)->str:
         if vector_name =="zone_A":
@@ -799,11 +804,10 @@ class STPsuitabilityMapper(STP_Area):
     
     def _get_elivation_value(self, vector_name: str)->float:
         centroid_value=None
-        print(vector_name)
         vector_path=self.get_vector_file(vector_name)
         village_vector=gpd.read_file(vector_path)
         centroid= village_vector.centroid
-        with rasterio.open(self.elivation_raster) as src:
+        with rasterio.open(self.elivation_path) as src:
             coords = [(x,y) for x, y in zip(centroid.geometry.x, centroid.geometry.y)]
             centroid_value = [val[0] for val in src.sample(coords)]
         print("centroid",centroid," and centroid_value",centroid_value)
@@ -941,9 +945,18 @@ class STPsuitabilityMapper(STP_Area):
         return {
                 "workspace": self.config.raster_workspace,
                 "layer_name": layer_name,
-                "cluster_name": layer_name
         }
 
     async def get_area(self,db:db_dependency,payload:STP_suitability_Area):
-        print(payload)
-        pass
+        cluster_gdf ,crs= await self._find_suitable_cluster(payload.mld_capacity,payload.treatment_technology,payload.custom_land_per_mld,payload.layer_name)
+        vector_path=self.get_vector_file(payload.place)
+        village_vector=gpd.read_file(vector_path)
+        centroid= village_vector.centroid
+        final_cluster=self._find_suitable_path(cluster_gdf,centroid)
+        final_cluster_name=None
+        if final_cluster is not None:
+            final_cluster_name=Unique_name.unique_name("final_cluster")
+            await self._temporory_vector(final_cluster,final_cluster_name)
+        return{
+            "cluster_name":final_cluster_name
+        }

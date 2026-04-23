@@ -62,6 +62,7 @@ class STP_suitability_Area(BaseModel):
     mld_capacity:float
     custom_land_per_mld: float = Field(2.0, le=2) 
     layer_name:str
+    place:str
 
     
 class Raster_operation_input(BaseModel):
