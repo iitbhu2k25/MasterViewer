@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import { GeoJSON, MapContainer, TileLayer, useMap, useMapEvents, WMSTileLayer, ZoomControl } from "react-leaflet";
-import type { FeatureCollection, StickyNote, BasemapType } from "../../../shared/types";
-import { BASEMAP_TILES } from "../../../shared/types";
-import DrainWFSLayer from "../../../shared/map-layers/DrainWFSLayer";
-import DemSlopeRasterLayer from "../../../shared/map-layers/DemSlopeRasterLayer";
-import FlowDirectionRasterLayer from "../../../shared/map-layers/FlowDirectionRasterLayer";
-import NirmalGwqLayer from "../../../shared/map-layers/NirmalGwqLayer";
-import NirmalRwqLayer from "../../../shared/map-layers/NirmalRwqLayer";
-import type { RwqSeason } from "../../../shared/map-layers/NirmalRwqLayer";
-import StpPointLayer from "../../../shared/map-layers/StpPointLayer";
+import type { FeatureCollection, StickyNote, BasemapType } from "../../shared/types";
+import { BASEMAP_TILES } from "../../shared/types";
+import DrainWFSLayer from "../../shared/map-layers/DrainWFSLayer";
+import DemSlopeRasterLayer from "../../shared/map-layers/DemSlopeRasterLayer";
+import FlowDirectionRasterLayer from "../../shared/map-layers/FlowDirectionRasterLayer";
+import NirmalGwqLayer from "../../shared/map-layers/NirmalGwqLayer";
+import NirmalRwqLayer from "../../shared/map-layers/NirmalRwqLayer";
+import type { RwqSeason } from "../../shared/map-layers/NirmalRwqLayer";
+import StpPointLayer from "../../shared/map-layers/StpPointLayer";
 
 /* ── Forces Leaflet to re-measure the container after layout settles ── */
 function MapResizer() {
@@ -21,10 +21,6 @@ function MapResizer() {
 
     const invalidate = () => map.invalidateSize(false);
 
-    // Only call invalidateSize when the container's pixel size actually changes.
-    // Using window "resize" events causes false triggers from synthetic resize
-    // events fired by React state changes (sticky notes, etc.) and browser
-    // reflows, which makes Leaflet read a wrong height and shrink the map.
     const ro = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (!entry) return;
@@ -38,7 +34,6 @@ function MapResizer() {
     });
     ro.observe(container);
 
-    // Initial invalidate after layout settles
     const t = setTimeout(invalidate, 100);
 
     return () => {
@@ -50,8 +45,8 @@ function MapResizer() {
 }
 
 // Re-exported from shared so existing imports of BasemapType/BASEMAP_TILES from this file still work
-export type { BasemapType } from "../../../shared/types";
-export { BASEMAP_TILES } from "../../../shared/types";
+export type { BasemapType } from "../../shared/types";
+export { BASEMAP_TILES } from "../../shared/types";
 
 const INDIA_CENTER: [number, number] = [22.5937, 78.9629];
 const INDIA_ZOOM = 5;
@@ -96,23 +91,16 @@ function AviralRasterLayer({ tiff }: { tiff: ArrayBuffer | null }) {
       const layer = new GeoRasterLayer({
         georaster,
         opacity: 0.85,
-        resolution: 512,
+        resolution: 256,
         pixelValuesToColorFn: (vals: number[]) => {
           const v = vals?.[0];
           if (v === undefined || v === null || !Number.isFinite(v)) return null;
-          if (nodata !== undefined && nodata !== null && v <= nodata + 1) return null;
+          if (nodata !== undefined && nodata !== null && Math.abs(v - nodata) < 1e-6) return null;
           if (v < 0) return null;
-          // green (0) → yellow (0.5) → red (1)
           const t = Math.max(0, Math.min(1, v));
-          let r: number, g: number;
-          if (t < 0.5) {
-            r = Math.round(255 * (t * 2));
-            g = 200;
-          } else {
-            r = 220;
-            g = Math.round(200 * (1 - (t - 0.5) * 2));
-          }
-          return `rgba(${r},${g},20,0.88)`;
+          const r = Math.round(255 * t);
+          const g = Math.round(255 * (1 - t));
+          return `rgba(${r},${g},60,0.82)`;
         },
       });
       if (!cancelled) { layer.addTo(map); layerRef.current = layer; }
@@ -616,6 +604,60 @@ export default function AdminMap({
 }: Props) {
   const tileConfig = basemap ? BASEMAP_TILES[basemap] : BASEMAP_TILES.streets;
 
+  /* Fetch industrial discharge GeoJSON when criterion is active */
+  const [internalIndustrialGeojson, setInternalIndustrialGeojson] = useState<any>(null);
+  useEffect(() => {
+    if (!activeCriteria.includes("Industrial discharge") || !selectedZones.length) {
+      setInternalIndustrialGeojson(null);
+      return;
+    }
+    fetch(`${clipApiBase}/analysis/industrial-discharge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selected_zones: selectedZones }),
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => setInternalIndustrialGeojson(d?.geojson ?? null))
+      .catch(() => setInternalIndustrialGeojson(null));
+  }, [activeCriteria, selectedZones, clipApiBase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const resolvedIndustrialGeojson = industrialGeojson ?? internalIndustrialGeojson;
+
+  /* Fetch population GeoJSON when criterion is active */
+  const [internalPopulationGeojson, setInternalPopulationGeojson] = useState<any>(null);
+  useEffect(() => {
+    if (!activeCriteria.includes("Population (urban/rural)") || !selectedZones.length) {
+      setInternalPopulationGeojson(null); return;
+    }
+    fetch(`${clipApiBase}/analysis/population`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selected_zones: selectedZones }),
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => setInternalPopulationGeojson(d?.geojson ?? null))
+      .catch(() => setInternalPopulationGeojson(null));
+  }, [activeCriteria, selectedZones, clipApiBase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* Fetch gram panchayat GeoJSON when criterion is active */
+  const [internalGramPanchayatGeojson, setInternalGramPanchayatGeojson] = useState<any>(null);
+  useEffect(() => {
+    if (!activeCriteria.includes("Gram Panchayat data") || !selectedZones.length) {
+      setInternalGramPanchayatGeojson(null); return;
+    }
+    fetch(`${clipApiBase}/analysis/gram-panchayat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selected_zones: selectedZones }),
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => setInternalGramPanchayatGeojson(d?.geojson ?? null))
+      .catch(() => setInternalGramPanchayatGeojson(null));
+  }, [activeCriteria, selectedZones, clipApiBase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const resolvedPopulationGeojson = populationGeojson ?? internalPopulationGeojson;
+  const resolvedGramPanchayatGeojson = gramPanchayatGeojson ?? internalGramPanchayatGeojson;
+
   /* Physical keyboard handler — lets users type directly on a selected note */
   const editingTextRef = useRef("");
   const editedNote = editingStickyNoteId ? stickyNotes.find((n) => n.id === editingStickyNoteId) : null;
@@ -673,8 +715,6 @@ export default function AdminMap({
       return {
         color: "#475569",
         weight: 2.1,
-        // dashArray: "3 2",
-        // Keep visual look as boundary-only, but retain an invisible fill for hover hit-area.
         fill: true,
         fillColor: "#000000",
         fillOpacity: 0.01,
@@ -928,7 +968,6 @@ export default function AdminMap({
               const avgFlow = records.length
                 ? records.reduce((s: number, r: any) => s + (r.flow_in_cm ?? 0), 0) / records.length
                 : 0;
-              // Color scale: blue shades by flow intensity
               const maxFlow = 1.5;
               const t = Math.min(avgFlow / maxFlow, 1);
               const r = Math.round(29 + (147 - 29) * (1 - t));
@@ -978,10 +1017,10 @@ export default function AdminMap({
             }}
           />
         )}
-        {activeCriteria.includes("Population (urban/rural)") && populationGeojson?.features?.length > 0 && (
+        {activeCriteria.includes("Population (urban/rural)") && resolvedPopulationGeojson?.features?.length > 0 && (
           <GeoJSON
-            key={`population-${populationGeojson.features.length}`}
-            data={populationGeojson}
+            key={`population-${resolvedPopulationGeojson.features.length}`}
+            data={resolvedPopulationGeojson}
             style={(feature: any) => {
               const pop = feature?.properties?.total_population ?? 0;
               const color = pop > 5000 ? "#dc2626" : pop > 2000 ? "#f97316" : pop > 1000 ? "#facc15" : pop > 500 ? "#479fda" : "#86efac";
@@ -1011,10 +1050,10 @@ export default function AdminMap({
             }}
           />
         )}
-        {activeCriteria.includes("Gram Panchayat data") && gramPanchayatGeojson?.features?.length > 0 && (
+        {activeCriteria.includes("Gram Panchayat data") && resolvedGramPanchayatGeojson?.features?.length > 0 && (
           <GeoJSON
-            key={`gram-panchayat-${gramPanchayatGeojson.features.length}`}
-            data={gramPanchayatGeojson}
+            key={`gram-panchayat-${resolvedGramPanchayatGeojson.features.length}`}
+            data={resolvedGramPanchayatGeojson}
             style={(feature: any) => {
               const zone = (feature?.properties?.zone ?? "").toUpperCase();
               const palette = ["#f59e0b", "#10b981", "#3b82f6", "#8b5cf6", "#ef4444", "#14b8a6", "#f97316", "#06b6d4"];
@@ -1038,21 +1077,20 @@ export default function AdminMap({
             }}
           />
         )}
-        {activeCriteria.includes("Industrial discharge") && industrialGeojson?.features?.length > 0 && (
+        {activeCriteria.includes("Industrial discharge") && resolvedIndustrialGeojson?.features?.length > 0 && (
           <GeoJSON
-            key={`industrial-geojson-${industrialGeojson.features.length}`}
-            data={industrialGeojson}
+            key={`industrial-geojson-${resolvedIndustrialGeojson.features.length}`}
+            data={resolvedIndustrialGeojson}
             pointToLayer={(_feature: any, latlng: any) => {
               const cat = (_feature?.properties?.category ?? "").toString().toLowerCase();
               const color = cat === "red" ? "#ef4444" : cat === "orange" ? "#f97316" : "#22c55e";
-              return L.circleMarker(latlng, {
-                radius: 7,
-                fillColor: color,
-                color: "#fff",
-                weight: 1.5,
-                opacity: 1,
-                fillOpacity: 0.88,
+              const icon = L.divIcon({
+                className: "",
+                html: `<div style="width:12px;height:12px;background:${color};border:1.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);"></div>`,
+                iconSize: [12, 12],
+                iconAnchor: [6, 6],
               });
+              return L.marker(latlng, { icon });
             }}
             onEachFeature={(feature: any, layer: any) => {
               const p = feature?.properties ?? {};
@@ -1063,7 +1101,7 @@ export default function AdminMap({
               const popup = `
                 <div style="font-family:sans-serif;font-size:12px;min-width:220px">
                   <div style="font-weight:700;font-size:13px;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-                    <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${dotColor};flex-shrink:0"></span>
+                    <span style="display:inline-block;width:10px;height:10px;background:${dotColor};flex-shrink:0"></span>
                     ${p.name ?? "Industry"}
                   </div>
                   <table style="width:100%;border-collapse:collapse;font-size:11px">
@@ -1080,7 +1118,7 @@ export default function AdminMap({
             }}
           />
         )}
-        {activeCriteria.includes("Tributary & drain flow") && (
+        {(activeCriteria.includes("Tributary & drain flow") || activeCriteria.includes("Drains & discharge points")) && (
           <DrainWFSLayer areaGeojson={areaGeojson} selectedZones={selectedZones} />
         )}
         {activeCriteria.includes("Groundwater quality") && (

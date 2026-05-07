@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import L from "leaflet";
 import { GeoJSON, MapContainer, TileLayer, WMSTileLayer, useMap, useMapEvents } from "react-leaflet";
 import type { STPWmsLayer } from "./STPSuitabilityPanel";
 import type { BasemapType, FeatureCollection, StickyNote } from "../../shared/types";
@@ -8,6 +9,128 @@ import { BASEMAP_TILES } from "../../shared/types";
 import DrainWFSLayer from "../../shared/map-layers/DrainWFSLayer";
 import DemSlopeRasterLayer from "../../shared/map-layers/DemSlopeRasterLayer";
 import FlowDirectionRasterLayer from "../../shared/map-layers/FlowDirectionRasterLayer";
+import NirmalGwqLayer from "../../shared/map-layers/NirmalGwqLayer";
+import NirmalRwqLayer from "../../shared/map-layers/NirmalRwqLayer";
+import StpPointLayer from "../../shared/map-layers/StpPointLayer";
+
+function AviralRasterLayer({ tiff }: { tiff: ArrayBuffer | null }) {
+  const map = useMap();
+  const layerRef = useRef<any>(null);
+
+  useEffect(() => {
+    const cleanup = () => {
+      if (layerRef.current) { map.removeLayer(layerRef.current); layerRef.current = null; }
+    };
+    if (!tiff) { cleanup(); return; }
+    let cancelled = false;
+    const load = async () => {
+      cleanup();
+      const parseGeoraster: any = await import("georaster").then(m => m.default ?? m);
+      const GeoRasterLayer: any = await import("georaster-layer-for-leaflet").then(m => m.default ?? m);
+      const georaster: any = await parseGeoraster(tiff.slice(0));
+      const nodata = georaster?.noDataValue;
+      const layer = new GeoRasterLayer({
+        georaster,
+        opacity: 0.85,
+        resolution: 256,
+        pixelValuesToColorFn: (vals: number[]) => {
+          const v = vals?.[0];
+          if (v === undefined || v === null || !Number.isFinite(v)) return null;
+          if (nodata !== undefined && nodata !== null && Math.abs(v - nodata) < 1e-6) return null;
+          if (v < 0) return null;
+          const t = Math.max(0, Math.min(1, v));
+          const r = Math.round(255 * t);
+          const g = Math.round(255 * (1 - t));
+          return `rgba(${r},${g},60,0.82)`;
+        },
+      });
+      if (!cancelled) { layer.addTo(map); layerRef.current = layer; }
+    };
+    void load();
+    return () => { cancelled = true; cleanup(); };
+  }, [tiff, map]);
+
+  return null;
+}
+
+const GEOSERVER_WMS = "http://localhost:9090/geoserver/dss_raster/wms";
+
+/* Rainfall raster — fetches most-recent year automatically */
+function ViewerRainfallLayer({ enabled, selectedZones, clipApiBase }: { enabled: boolean; selectedZones: string[]; clipApiBase: string }) {
+  const map = useMap();
+  const layerRef = useRef<any>(null);
+  const zonesKey = selectedZones.join(",");
+
+  useEffect(() => {
+    const cleanup = () => { if (layerRef.current) { map.removeLayer(layerRef.current); layerRef.current = null; } };
+    if (!enabled || !selectedZones.length) { cleanup(); return; }
+    let cancelled = false;
+
+    const load = async () => {
+      // Get available years first, use most recent
+      let year: number | null = null;
+      try {
+        const meta = await fetch(`${clipApiBase}/analysis/rainfall`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ selected_zones: selectedZones }),
+        });
+        if (meta.ok) {
+          const d = await meta.json();
+          const years: number[] = (d?.years ?? []).map(Number).sort((a: number, b: number) => b - a);
+          year = years[0] ?? null;
+        }
+      } catch { /* ignore */ }
+      if (!year || cancelled) return;
+
+      const res = await fetch(`${clipApiBase}/analysis/rainfall-clip`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ selected_zones: selectedZones, year }),
+      });
+      if (!res.ok || cancelled) return;
+      const buf = await res.arrayBuffer();
+      if (cancelled) return;
+      cleanup();
+      const parseGeoraster: any = await import("georaster").then(m => m.default ?? m);
+      const GeoRasterLayer: any = await import("georaster-layer-for-leaflet").then(m => m.default ?? m);
+      const georaster: any = await parseGeoraster(buf);
+      const nodata = georaster?.noDataValue;
+      const layer = new GeoRasterLayer({
+        georaster, opacity: 0.9, resolution: 256,
+        pixelValuesToColorFn: (vals: number[]) => {
+          const v = vals?.[0];
+          if (v === undefined || v === null || !Number.isFinite(v)) return null;
+          if (nodata !== undefined && nodata !== null && Math.abs(v - nodata) < 1e-9) return null;
+          if (v < 100) return null;
+          const t = Math.min(1, (v - 100) / 1900);
+          const r = Math.round(200 - 150 * t);
+          const g = Math.round(220 - 100 * t);
+          const b = Math.round(255 - 55 * t);
+          return `rgba(${r},${g},${b},0.75)`;
+        },
+      });
+      if (!cancelled) { layer.addTo(map); layerRef.current = layer; }
+    };
+    void load();
+    return () => { cancelled = true; cleanup(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, zonesKey, clipApiBase]);
+
+  return null;
+}
+
+/* Groundwater recharge — WMS layer from GeoServer */
+function ViewerRechargeLayer({ enabled }: { enabled: boolean }) {
+  return enabled ? (
+    <WMSTileLayer
+      key="viewer-recharge-wms"
+      url={GEOSERVER_WMS}
+      params={{ layers: "dss_raster:recharge_gw", format: "image/png", transparent: true, version: "1.1.0" } as any}
+      opacity={0.65}
+    />
+  ) : null;
+}
 
 /* Syncs this mini-map's view to the master map's center & zoom */
 function MapViewSync({
@@ -460,6 +583,7 @@ type Props = {
   mapRotation?: number;
   stpWmsLayer?:  STPWmsLayer | null;
   stpAreaLayer?: STPWmsLayer | null;
+  aviralTiff?: ArrayBuffer | null;
 };
 
 export default function SplitMapViewer({
@@ -487,8 +611,57 @@ export default function SplitMapViewer({
   mapRotation = 0,
   stpWmsLayer  = null,
   stpAreaLayer = null,
+  aviralTiff   = null,
 }: Props) {
   const tileConfig = BASEMAP_TILES[basemap];
+
+  /* Fetch industrial discharge GeoJSON when criterion is active */
+  const [industrialGeojson, setIndustrialGeojson] = useState<any>(null);
+  useEffect(() => {
+    if (!activeCriteria.includes("Industrial discharge") || !selectedZones.length) {
+      setIndustrialGeojson(null); return;
+    }
+    fetch(`${clipApiBase}/analysis/industrial-discharge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selected_zones: selectedZones }),
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => setIndustrialGeojson(d?.geojson ?? null))
+      .catch(() => setIndustrialGeojson(null));
+  }, [activeCriteria, selectedZones, clipApiBase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* Fetch population GeoJSON when criterion is active */
+  const [populationGeojson, setPopulationGeojson] = useState<any>(null);
+  useEffect(() => {
+    if (!activeCriteria.includes("Population (urban/rural)") || !selectedZones.length) {
+      setPopulationGeojson(null); return;
+    }
+    fetch(`${clipApiBase}/analysis/population`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selected_zones: selectedZones }),
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => setPopulationGeojson(d?.geojson ?? null))
+      .catch(() => setPopulationGeojson(null));
+  }, [activeCriteria, selectedZones, clipApiBase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* Fetch gram panchayat GeoJSON when criterion is active */
+  const [gramPanchayatGeojson, setGramPanchayatGeojson] = useState<any>(null);
+  useEffect(() => {
+    if (!activeCriteria.includes("Gram Panchayat data") || !selectedZones.length) {
+      setGramPanchayatGeojson(null); return;
+    }
+    fetch(`${clipApiBase}/analysis/gram-panchayat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selected_zones: selectedZones }),
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => setGramPanchayatGeojson(d?.geojson ?? null))
+      .catch(() => setGramPanchayatGeojson(null));
+  }, [activeCriteria, selectedZones, clipApiBase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const basinStyle = useMemo(
     () => ({ color: "#1d4ed8", weight: 2, dashArray: "6 4", fill: false, fillOpacity: 0 }),
@@ -575,8 +748,11 @@ export default function SplitMapViewer({
         />
       ) : null}
 
+      <ViewerRainfallLayer enabled={activeCriteria.includes("Rainfall & runoff")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+      <ViewerRechargeLayer enabled={activeCriteria.includes("Groundwater recharge")} />
+
       {/* Drain flow WFS layers — real features filtered to selected zones */}
-      {activeCriteria.includes("Tributary & drain flow") && (
+      {(activeCriteria.includes("Tributary & drain flow") || activeCriteria.includes("Drains & discharge points")) && (
         <DrainWFSLayer areaGeojson={areaGeojson} selectedZones={selectedZones} />
       )}
 
@@ -589,6 +765,114 @@ export default function SplitMapViewer({
       )}
       {activeCriteria.includes("Surface flow direction & accumulation maps") && (
         <FlowDirectionRasterLayer enabled={true} selectedZones={selectedZones} clipApiBase={clipApiBase} dataType="direction" />
+      )}
+      {activeCriteria.includes("Groundwater quality") && (
+        <NirmalGwqLayer enabled={true} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+      )}
+      {activeCriteria.includes("River water quality") && (
+        <NirmalRwqLayer enabled={true} selectedZones={selectedZones} clipApiBase={clipApiBase} season="monsoon" />
+      )}
+      {activeCriteria.includes("STP details") && (
+        <StpPointLayer enabled={true} selectedZones={selectedZones} apiBase={clipApiBase} />
+      )}
+      {activeCriteria.includes("Industrial discharge") && industrialGeojson?.features?.length > 0 && (
+        <GeoJSON
+          key={`viewer-industrial-${industrialGeojson.features.length}`}
+          data={industrialGeojson}
+          pointToLayer={(_feature: any, latlng: any) => {
+            const cat = (_feature?.properties?.category ?? "").toString().toLowerCase();
+            const color = cat === "red" ? "#ef4444" : cat === "orange" ? "#f97316" : "#22c55e";
+            const icon = L.divIcon({
+              className: "",
+              html: `<div style="width:11px;height:11px;background:${color};border:1.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);"></div>`,
+              iconSize: [11, 11],
+              iconAnchor: [5, 5],
+            });
+            return L.marker(latlng, { icon });
+          }}
+          onEachFeature={(feature: any, layer: any) => {
+            const p = feature?.properties ?? {};
+            const cat = (p.category ?? "").toString().toLowerCase();
+            const dotColor = cat === "red" ? "#ef4444" : cat === "orange" ? "#f97316" : "#22c55e";
+            const row = (label: string, val: any) =>
+              `<tr><td style="padding:2px 6px;color:#64748b;white-space:nowrap">${label}</td><td style="padding:2px 6px;font-weight:600">${val ?? "—"}</td></tr>`;
+            const popup = `
+              <div style="font-family:sans-serif;font-size:12px;min-width:200px">
+                <div style="font-weight:700;font-size:13px;margin-bottom:6px;display:flex;align-items:center;gap:6px">
+                  <span style="display:inline-block;width:10px;height:10px;background:${dotColor};flex-shrink:0"></span>
+                  ${p.name ?? "Industry"}
+                </div>
+                <table style="width:100%;border-collapse:collapse;font-size:11px">
+                  ${row("Type", p.type_of_industry)}
+                  ${row("Category", p.category)}
+                  ${row("Dist. to River (km)", p.dist_km != null ? Number(p.dist_km).toFixed(2) : null)}
+                </table>
+              </div>`;
+            layer.bindPopup(popup, { maxWidth: 260 });
+          }}
+        />
+      )}
+
+      {activeCriteria.includes("Population (urban/rural)") && populationGeojson?.features?.length > 0 && (
+        <GeoJSON
+          key={`viewer-population-${populationGeojson.features.length}`}
+          data={populationGeojson}
+          style={(feature: any) => {
+            const pop = feature?.properties?.total_population ?? 0;
+            const color = pop > 5000 ? "#dc2626" : pop > 2000 ? "#f97316" : pop > 1000 ? "#facc15" : pop > 500 ? "#479fda" : "#86efac";
+            return { fillColor: color, fillOpacity: 0.6, color: "#1e293b", weight: 0.8 };
+          }}
+          onEachFeature={(feature: any, layer: any) => {
+            const p = feature?.properties ?? {};
+            const pop = p.total_population != null ? p.total_population.toLocaleString() : "—";
+            layer.bindTooltip(`${p.village ?? "Village"} — Pop: ${pop}`, { sticky: true, direction: "top", opacity: 0.95 });
+            layer.bindPopup(
+              `<div style="font-family:sans-serif;font-size:12px;min-width:180px">
+                <div style="font-weight:700;font-size:13px;margin-bottom:5px">${p.village ?? "—"}</div>
+                <table style="width:100%;border-collapse:collapse;font-size:11px">
+                  <tr><td style="color:#64748b;padding:2px 4px">Gram Panchayat</td><td style="font-weight:600;padding:2px 4px">${p.gram_panchayat ?? "—"}</td></tr>
+                  <tr><td style="color:#64748b;padding:2px 4px">Block</td><td style="font-weight:600;padding:2px 4px">${p.block ?? "—"}</td></tr>
+                  <tr><td style="color:#64748b;padding:2px 4px">District</td><td style="font-weight:600;padding:2px 4px">${p.district ?? "—"}</td></tr>
+                  <tr><td style="color:#64748b;padding:2px 4px">Zone</td><td style="font-weight:600;padding:2px 4px">${p.zone ?? "—"}</td></tr>
+                  <tr><td style="color:#64748b;padding:2px 4px">Urban/Rural</td><td style="font-weight:600;padding:2px 4px">${p.urban_rural ?? "—"}</td></tr>
+                  <tr><td style="color:#64748b;padding:2px 4px">Total Population</td><td style="font-weight:600;padding:2px 4px">${p.total_population != null ? p.total_population.toLocaleString() : "—"}</td></tr>
+                  <tr><td style="color:#64748b;padding:2px 4px">Male</td><td style="font-weight:600;padding:2px 4px">${p.total_male != null ? p.total_male.toLocaleString() : "—"}</td></tr>
+                  <tr><td style="color:#64748b;padding:2px 4px">Female</td><td style="font-weight:600;padding:2px 4px">${p.total_female != null ? p.total_female.toLocaleString() : "—"}</td></tr>
+                  <tr><td style="color:#64748b;padding:2px 4px">Households</td><td style="font-weight:600;padding:2px 4px">${p.total_households != null ? p.total_households.toLocaleString() : "—"}</td></tr>
+                </table>
+              </div>`,
+              { maxWidth: 280 }
+            );
+          }}
+        />
+      )}
+
+      {activeCriteria.includes("Gram Panchayat data") && gramPanchayatGeojson?.features?.length > 0 && (
+        <GeoJSON
+          key={`viewer-gram-panchayat-${gramPanchayatGeojson.features.length}`}
+          data={gramPanchayatGeojson}
+          style={(feature: any) => {
+            const zone = (feature?.properties?.zone ?? "").toUpperCase();
+            const palette = ["#f59e0b", "#10b981", "#3b82f6", "#8b5cf6", "#ef4444", "#14b8a6", "#f97316", "#06b6d4"];
+            let hash = 0;
+            for (let i = 0; i < zone.length; i++) { hash = (hash << 5) - hash + zone.charCodeAt(i); hash |= 0; }
+            const fill = palette[Math.abs(hash) % palette.length];
+            return { fillColor: fill, fillOpacity: 0.45, color: "#1e293b", weight: 1 };
+          }}
+          onEachFeature={(feature: any, layer: any) => {
+            const p = feature?.properties ?? {};
+            layer.bindTooltip(p.name ?? "Gram Panchayat", { sticky: true, direction: "top", opacity: 0.95 });
+            layer.bindPopup(
+              `<div style="font-family:sans-serif;font-size:12px;min-width:160px">
+                <div style="font-weight:700;font-size:13px;margin-bottom:4px">${p.name ?? "—"}</div>
+                <div style="color:#475569;font-size:11px">Zone: <strong>${p.zone ?? "—"}</strong></div>
+                <div style="color:#475569;font-size:11px">Sub-district code: <strong>${p.subdis_cod ?? "—"}</strong></div>
+                <div style="color:#475569;font-size:11px">ID: ${p.id ?? "—"}</div>
+              </div>`,
+              { maxWidth: 240 }
+            );
+          }}
+        />
       )}
 
       {stpWmsLayer && (
@@ -629,6 +913,7 @@ export default function SplitMapViewer({
         onOpenStickyEditor={onOpenStickyEditor}
         onDeleteStickyNote={onDeleteStickyNote}
       />
+      {activeCriteria.includes("Combined Output") && <AviralRasterLayer tiff={aviralTiff ?? null} />}
     </MapContainer>
   );
 }

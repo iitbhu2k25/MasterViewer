@@ -1,6 +1,6 @@
 import { ZoneOption } from "../types/location";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { STAGE_CONFIGS } from "../../../shared/criteria-configs";
+import { STAGE_CONFIGS, STAGE_RASTER_CRITERIA } from "../../../shared/criteria-configs";
 
 // Re-export so HolisticModule can import from here
 export { STAGE_CONFIGS };
@@ -23,6 +23,17 @@ type Props = {
   zoneOptions: ZoneOption[];
   displayedZones: number;
   onZoneChange: (values: string[]) => Promise<void>;
+  // Aviral suitability
+  criteriaWeights?: Record<string, number>;
+  onWeightChange?: (criterion: string, value: number) => void;
+  onGenerateSuitability?: () => void;
+  suitabilityLoading?: boolean;
+  suitabilityError?: string;
+  suitabilityReady?: boolean;
+  showSuitabilityOnMap?: boolean;
+  onToggleSuitabilityOnMap?: () => void;
+  showAviralPanel?: boolean;
+  onToggleAviralPanel?: () => void;
 };
 
 export default function AdminLocation({
@@ -42,6 +53,16 @@ export default function AdminLocation({
   zoneOptions,
   displayedZones,
   onZoneChange,
+  criteriaWeights = {},
+  onWeightChange,
+  onGenerateSuitability,
+  suitabilityLoading = false,
+  suitabilityError = "",
+  suitabilityReady = false,
+  showSuitabilityOnMap = false,
+  onToggleSuitabilityOnMap,
+  showAviralPanel = false,
+  onToggleAviralPanel,
 }: Props) {
   const [zoneOpen, setZoneOpen] = useState(false);
   const zoneRef = useRef<HTMLDivElement | null>(null);
@@ -281,6 +302,98 @@ export default function AdminLocation({
             >
               ⬇ Generate Report
             </button>
+          )}
+
+          {/* Output button — visible on all stages once criteria selected */}
+          {selectedDataUsed.length > 0 && (
+            <button
+              type="button"
+              onClick={onToggleAviralPanel}
+              className={`mt-3 w-full rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                showAviralPanel
+                  ? "bg-sky-700 text-white hover:bg-sky-800"
+                  : "border border-sky-500 bg-white text-sky-700 hover:bg-sky-50"
+              }`}
+            >
+              {showAviralPanel ? "▲ Hide Output" : "▼ Output"}
+            </button>
+          )}
+
+          {/* ── Phase weight panel ── */}
+          {showAviralPanel && selectedDataUsed.length > 0 && (
+            <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-3">
+              <p className="mb-1 text-sm font-bold text-sky-900">Adjust Criteria Weights</p>
+              <p className="mb-3 text-xs text-slate-500">Move a slider to set influence. The % shown is each criterion's share of the total.</p>
+              <div className="space-y-1.5">
+                {(() => {
+                  const totalW = selectedDataUsed.reduce((s, c) => s + (criteriaWeights[c] ?? 5), 0);
+                  return selectedDataUsed.map((criterion) => {
+                    const val = criteriaWeights[criterion] ?? 5;
+                    const pct = totalW > 0 ? Math.round((val / totalW) * 100) : 0;
+                    return (
+                      <div key={criterion}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-medium text-slate-700 leading-tight truncate">{criterion}</span>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <span className="rounded bg-sky-100 px-1 py-0 text-[10px] font-semibold text-sky-700">{val}</span>
+                            <span className="rounded bg-sky-600 px-1 py-0 text-[10px] font-bold text-white">{pct}%</span>
+                          </div>
+                        </div>
+                        <input
+                          type="range"
+                          min={1}
+                          max={10}
+                          step={1}
+                          value={val}
+                          onChange={(e) => onWeightChange?.(criterion, Number(e.target.value))}
+                          className="w-full h-1 accent-sky-600"
+                        />
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+
+              {(() => {
+                const rasterCriteria = STAGE_RASTER_CRITERIA[stageIndex] ?? [];
+                const hasRasterMatch = selectedDataUsed.some((c) => rasterCriteria.includes(c));
+                if (!hasRasterMatch) {
+                  return (
+                    <p className="mt-3 rounded bg-slate-100 px-2 py-2 text-xs text-slate-500 text-center">
+                      Raster analysis not yet available for the selected criteria.
+                    </p>
+                  );
+                }
+                return (
+                  <>
+                    {suitabilityError && (
+                      <p className="mt-2 rounded bg-red-50 px-2 py-1 text-xs text-red-700">{suitabilityError}</p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={onGenerateSuitability}
+                      disabled={suitabilityLoading || selectedZones.length === 0}
+                      className="mt-3 w-full rounded-lg bg-sky-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      {suitabilityLoading ? "Generating…" : "Generate"}
+                    </button>
+                    {suitabilityReady && (
+                      <button
+                        type="button"
+                        onClick={onToggleSuitabilityOnMap}
+                        className={`mt-2 w-full rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                          showSuitabilityOnMap
+                            ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                            : "border border-emerald-500 bg-white text-emerald-700 hover:bg-emerald-50"
+                        }`}
+                      >
+                        {showSuitabilityOnMap ? "✓ Shown on Map" : "Show on Map"}
+                      </button>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
           )}
         </div>
       </div>

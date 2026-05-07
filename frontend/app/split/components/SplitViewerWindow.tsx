@@ -44,10 +44,12 @@ export type SplitViewerWindowProps = {
   editingScreenNames?: boolean;
   onScreenNameChange?: (name: string) => void;
   onHideSelf?: () => void;
-  activeModule?: "Aviral Ganga" | "Nirmal Ganga" | "STP Suitability";
+  activeModule?: "Aviral Ganga" | "Nirmal Ganga" | "Jan Ganga" | "Arth Ganga" | "STP Suitability";
   onSTPPresentToMain?:     (layer: STPWmsLayer | null) => void;
   onSTPAreaPresentToMain?: (layer: STPWmsLayer | null) => void;
   stpResetKey?: number;
+  combinedTiff?: ArrayBuffer | null;
+  onCombinedTiffUpdate?: (tiff: ArrayBuffer) => void;
 };
 
 const BEZEL_ACCENT = "#5f5099 ";
@@ -204,6 +206,8 @@ export default function SplitViewerWindow({
   onSTPPresentToMain,
   onSTPAreaPresentToMain,
   stpResetKey = 0,
+  combinedTiff = null,
+  onCombinedTiffUpdate,
 }: SplitViewerWindowProps) {
   const [stpWmsLayer,  setStpWmsLayer]  = useState<STPWmsLayer | null>(null);
   const [stpAreaLayer, setStpAreaLayer] = useState<STPWmsLayer | null>(null);
@@ -552,8 +556,8 @@ const dragCursor = cfg.axis === "x" ? "ew-resize" : "ns-resize";
         <div
           className="flex shrink-0 items-center justify-between select-none"
           style={{
-            height: "44px",
-            padding: "0 10px",
+            height: "28px",
+            padding: "0 8px",
             cursor: dragCursor,
             background: BEZEL_ACCENT,
             zIndex: 20,
@@ -836,6 +840,7 @@ const dragCursor = cfg.axis === "x" ? "ew-resize" : "ns-resize";
                 mapRotation={rotationAngle}
                 stpWmsLayer={stpWmsLayer}
                 stpAreaLayer={stpAreaLayer}
+                aviralTiff={combinedTiff}
               />
             ) : null}
             {editedNote && onUpdateStickyNote && editingStickyNoteId ? (
@@ -921,7 +926,13 @@ const dragCursor = cfg.axis === "x" ? "ew-resize" : "ns-resize";
                   <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", top: 0, bottom: 0, width: 5, background: "#bfdbfe" }} />
                 </div>
                 <div style={{ width: criteriaWidth, flexShrink: 0, overflow: "hidden" }}>
-                  <CriteriaDataPanel activeCriteria={activeCriteria} selectedZones={selectedZones} />
+                  <CriteriaDataPanel
+                  activeCriteria={activeCriteria}
+                  selectedZones={selectedZones}
+                  activeModule={activeModule}
+                  backendBase={clipApiBase}
+                  onCombinedTiffUpdate={onCombinedTiffUpdate}
+                />
                 </div>
               </>
             )}

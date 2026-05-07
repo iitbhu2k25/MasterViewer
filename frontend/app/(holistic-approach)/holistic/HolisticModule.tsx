@@ -13,6 +13,63 @@ type HolisticModuleProps = {
   hideLeftPanel?: boolean;
 };
 
+type IndustrialRecord = {
+  layer: string;
+  label: string;
+  zone: string;
+  name: string;
+  district: string;
+  type_of_industry: string;
+  category: string;
+  pollution_index: string;
+  near_river: string;
+  dist_km: number | null;
+  distance_zone: string;
+  latitude: number | null;
+  longitude: number | null;
+};
+
+type IndustrialLayer = {
+  layer: string;
+  label: string;
+  count: number;
+  records: IndustrialRecord[];
+  error?: string;
+};
+
+type PopulationRecord = {
+  village: string;
+  gram_panchayat: string;
+  block: string;
+  subdistrict: string;
+  district: string;
+  total_population: number | null;
+  total_male: number | null;
+  total_female: number | null;
+  total_households: number | null;
+  urban_rural: string;
+  zone: string;
+};
+
+type GramPanchayatRecord = {
+  id: number | null;
+  name: string;
+  state_code: number | null;
+  subdis_cod: number | null;
+  zone: string;
+};
+
+type RiverFlowRecord = {
+  Subbasin: number;
+  SUB: string;
+  year: number;
+  month: number;
+  area_km2: number;
+  flow_in_cm: number;
+  flow_out_c: number;
+  yyyyddd: number;
+};
+
 type StageSnapshot = {
   selectedDataUsed: string[];
   proceededCriteria: string[];
@@ -33,6 +90,27 @@ type StageSnapshot = {
   rwqError: string;
   stpData: any[] | null;
   stpError: string;
+  riverFlowData: RiverFlowRecord[] | null;
+  riverFlowSubbasins: number[] | null;
+  riverFlowGeojson: any | null;
+  riverFlowError: string;
+  industrialLayers: IndustrialLayer[] | null;
+  industrialGeojson: any | null;
+  industrialError: string;
+  gramPanchayatData: GramPanchayatRecord[] | null;
+  gramPanchayatGeojson: any | null;
+  gramPanchayatError: string;
+  populationData: PopulationRecord[] | null;
+  populationGeojson: any | null;
+  populationError: string;
+  populationTotal: number | null;
+  // Phase raster analysis (all stages)
+  criteriaWeights: Record<string, number>;
+  phaseLoading: boolean;
+  phaseError: string;
+  phaseTiff: ArrayBuffer | null;
+  showPhaseOnMap: boolean;
+  showPhasePanel: boolean;
 };
 
 function emptySnapshot(): StageSnapshot {
@@ -56,6 +134,26 @@ function emptySnapshot(): StageSnapshot {
     rwqError: "",
     stpData: null,
     stpError: "",
+    riverFlowData: null,
+    riverFlowSubbasins: null,
+    riverFlowGeojson: null,
+    riverFlowError: "",
+    industrialLayers: null,
+    industrialGeojson: null,
+    industrialError: "",
+    gramPanchayatData: null,
+    gramPanchayatGeojson: null,
+    gramPanchayatError: "",
+    populationData: null,
+    populationGeojson: null,
+    populationError: "",
+    populationTotal: null,
+    criteriaWeights: {},
+    phaseLoading: false,
+    phaseError: "",
+    phaseTiff: null,
+    showPhaseOnMap: false,
+    showPhasePanel: false,
   };
 }
 
@@ -107,8 +205,12 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
   const wantsGroundwaterQuality = proceededCriteria.some((i) => i.toLowerCase().includes("groundwater quality"));
   const wantsRiverWaterQuality = proceededCriteria.some((i) => i.toLowerCase().includes("river water quality"));
   const wantsStp = proceededCriteria.some((i) => i.toLowerCase().includes("stp"));
+  const wantsRiverFlow = proceededCriteria.some((i) => i.toLowerCase().includes("river flow"));
+  const wantsIndustrial = proceededCriteria.some((i) => i.toLowerCase().includes("industrial"));
+  const wantsGramPanchayat = proceededCriteria.some((i) => i.toLowerCase().includes("gram panchayat"));
+  const wantsPopulation = proceededCriteria.some((i) => i.toLowerCase().includes("population"));
   const wantsTributaryDrain = proceededCriteria.some((i) => { const v = i.toLowerCase(); return v.includes("tributary") || v.includes("drain"); });
-  const wantsDemSlope = proceededCriteria.some((i) => { const v = i.toLowerCase(); return v.includes("dem") || v.includes("slope"); });
+  const wantsDemSlope = proceededCriteria.some((i) => { const v = i.toLowerCase(); return /\bdem\b/.test(v) || v.includes("slope"); });
   const wantsFlowDirection = proceededCriteria.some((i) => i.toLowerCase().includes("surface flow"));
 
   const onToggleDataUsed = (item: string) => {
@@ -130,10 +232,14 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
     const nowWantsRainfall = criteria.some((i) => i.toLowerCase().includes("rainfall"));
     const nowWantsGroundwater = criteria.some((i) => i.toLowerCase().includes("groundwater"));
     const nowWantsTributaryDrain = criteria.some((i) => { const v = i.toLowerCase(); return v.includes("tributary") || v.includes("drain"); });
-    const nowWantsDemSlope = criteria.some((i) => { const v = i.toLowerCase(); return v.includes("dem") || v.includes("slope"); });
+    const nowWantsDemSlope = criteria.some((i) => { const v = i.toLowerCase(); return /\bdem\b/.test(v) || v.includes("slope"); });
     const nowWantsFlowDirection = criteria.some((i) => i.toLowerCase().includes("surface flow"));
     const nowWantsRiverWaterQuality = criteria.some((i) => i.toLowerCase().includes("river water quality"));
     const nowWantsStp = criteria.some((i) => i.toLowerCase().includes("stp"));
+    const nowWantsRiverFlow = criteria.some((i) => i.toLowerCase().includes("river flow"));
+    const nowWantsIndustrial = criteria.some((i) => i.toLowerCase().includes("industrial"));
+    const nowWantsGramPanchayat = criteria.some((i) => i.toLowerCase().includes("gram panchayat"));
+    const nowWantsPopulation = criteria.some((i) => i.toLowerCase().includes("population"));
 
     patchSnap({
       showOutputs: true,
@@ -151,6 +257,25 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
       rwqStats: null,
       stpError: "",
       stpData: null,
+      riverFlowData: null,
+      riverFlowSubbasins: null,
+      riverFlowGeojson: null,
+      riverFlowError: "",
+      industrialLayers: null,
+      industrialGeojson: null,
+      industrialError: "",
+      gramPanchayatData: null,
+      gramPanchayatGeojson: null,
+      gramPanchayatError: "",
+      populationData: null,
+      populationGeojson: null,
+      populationError: "",
+      populationTotal: null,
+      phaseLoading: false,
+      phaseError: "",
+      phaseTiff: null,
+      showPhaseOnMap: false,
+      showPhasePanel: false,
     });
 
     const nextResult: any = {
@@ -261,6 +386,62 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
         }
       }
 
+      if (nowWantsRiverFlow) {
+        const res = await fetch(`${backendBase}/analysis/river-flow`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ selected_zones: selectedZones }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          patchSnap({ riverFlowError: data?.detail || `River flow fetch failed (${res.status})` });
+        } else {
+          patchSnap({
+            riverFlowData: data.records ?? [],
+            riverFlowSubbasins: data.subbasin_ids ?? [],
+            riverFlowGeojson: data.geojson ?? null,
+          });
+        }
+      }
+
+      if (nowWantsPopulation) {
+        const res = await fetch(`${backendBase}/analysis/population`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ selected_zones: selectedZones }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          patchSnap({ populationError: data?.detail || `Population fetch failed (${res.status})` });
+        } else {
+          patchSnap({ populationData: data.records ?? [], populationGeojson: data.geojson ?? null, populationTotal: data.total_population ?? null });
+        }
+      }
+
+      if (nowWantsGramPanchayat) {
+        const res = await fetch(`${backendBase}/analysis/gram-panchayat`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ selected_zones: selectedZones }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          patchSnap({ gramPanchayatError: data?.detail || `Gram Panchayat fetch failed (${res.status})` });
+        } else {
+          patchSnap({ gramPanchayatData: data.records ?? [], gramPanchayatGeojson: data.geojson ?? null });
+        }
+      }
+
+      if (nowWantsIndustrial) {
+        const res = await fetch(`${backendBase}/analysis/industrial-discharge`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ selected_zones: selectedZones }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          patchSnap({ industrialError: data?.detail || `Industrial discharge fetch failed (${res.status})` });
+        } else {
+          patchSnap({ industrialLayers: data.layers ?? [], industrialGeojson: data.geojson ?? null });
+        }
+      }
+
       patchSnap({ analysisResult: nextResult });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Analysis request failed";
@@ -295,10 +476,66 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stageIndex]);
 
+  const onWeightChange = useCallback((criterion: string, value: number) => {
+    patchSnap({ criteriaWeights: { ...snap.criteriaWeights, [criterion]: value } });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snap.criteriaWeights, stageIndex]);
+
+  const onGeneratePhaseRaster = useCallback(async () => {
+    if (snap.phaseLoading || !snap.selectedDataUsed.length || !selectedZones.length) return;
+    patchSnap({ phaseLoading: true, phaseError: "", phaseTiff: null, showPhaseOnMap: false });
+    try {
+      const weights: Record<string, number> = {};
+      for (const c of snap.selectedDataUsed) {
+        weights[c] = snap.criteriaWeights[c] ?? 5;
+      }
+      const res = await fetch(`${backendBase}/analysis/phase-raster`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stage_index: stageIndex, selected_zones: selectedZones, criteria_weights: weights }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        patchSnap({ phaseError: data?.detail || `Analysis failed (${res.status})`, phaseLoading: false });
+        return;
+      }
+      const tiff = await res.arrayBuffer();
+      patchSnap({ phaseTiff: tiff, phaseLoading: false });
+      // Persist to media/temp on the backend so /split page can read it
+      try {
+        const form = new FormData();
+        form.append("stage_index", String(stageIndex));
+        form.append("stage_name", STAGE_CONFIGS[stageIndex]?.title ?? `Stage ${stageIndex + 1}`);
+        form.append("criteria", JSON.stringify(snap.selectedDataUsed));
+        form.append("weights", JSON.stringify(weights));
+        form.append("tiff", new Blob([tiff], { type: "image/tiff" }), `phase_raster_${stageIndex}.tif`);
+        await fetch(`${backendBase}/analysis/save-phase-raster`, { method: "POST", body: form });
+      } catch { /* non-critical — ignore save errors */ }
+    } catch (err) {
+      patchSnap({ phaseError: err instanceof Error ? err.message : "Request failed", phaseLoading: false });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snap.phaseLoading, snap.selectedDataUsed, snap.criteriaWeights, selectedZones, backendBase, stageIndex]);
+
   const { analysisResult, showRainfallLayer, showRechargeLayer, selectedRainfallYear,
     outputLoading, rainfallError, groundwaterError, tributaryDrainError,
     demSlopeError, flowDirectionError, showOutputs, rwqSeason, rwqStats, rwqError,
-    stpData, stpError } = snap;
+    stpData, stpError, riverFlowData, riverFlowSubbasins, riverFlowGeojson, riverFlowError,
+    industrialLayers, industrialGeojson, industrialError,
+    gramPanchayatData, gramPanchayatGeojson, gramPanchayatError,
+    populationData, populationGeojson, populationError, populationTotal,
+    criteriaWeights } = snap;
+  const { phaseLoading, phaseError, phaseTiff, showPhaseOnMap } = snap;
+
+  const [rfYear, setRfYear] = useState<number | "all">("all");
+  const [rfMonth, setRfMonth] = useState<number | "all">("all");
+
+  const rfYears = riverFlowData ? [...new Set(riverFlowData.map(r => r.year))].sort((a, b) => a - b) : [];
+  const rfMonths = riverFlowData ? [...new Set(riverFlowData.map(r => r.month))].sort((a, b) => a - b) : [];
+  const rfFiltered = (riverFlowData ?? []).filter(r =>
+    (rfYear === "all" || r.year === rfYear) &&
+    (rfMonth === "all" || r.month === rfMonth)
+  );
 
   return (
     <div className="min-h-screen bg-[#eef2f8] p-1 md:p-2">
@@ -320,6 +557,7 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
           <div className="h-full w-full">
             <AdminMap
               selectedZones={selectedZones}
+              zoneOptions={zoneOptions.map((z) => z.value)}
               areaGeojson={areaGeojson}
               riversGeojson={riversGeojson}
               basinGeojson={basinGeojson}
@@ -329,7 +567,17 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
               showRechargeLayer={showRechargeLayer}
               rainfallYear={selectedRainfallYear}
               clipApiBase={backendBase}
+              riverFlowSubbasins={wantsRiverFlow ? (riverFlowSubbasins ?? []) : []}
+              riverFlowGeojson={wantsRiverFlow ? riverFlowGeojson : null}
+              riverFlowRecords={wantsRiverFlow ? (riverFlowData ?? []) : []}
+              industrialGeojson={wantsIndustrial ? industrialGeojson : null}
+              gramPanchayatGeojson={wantsGramPanchayat ? gramPanchayatGeojson : null}
+              populationGeojson={wantsPopulation ? populationGeojson : null}
               activeCriteria={[
+                ...(wantsRiverFlow ? ["River flow"] : []),
+                ...(wantsIndustrial ? ["Industrial discharge"] : []),
+                ...(wantsGramPanchayat ? ["Gram Panchayat data"] : []),
+                ...(wantsPopulation ? ["Population (urban/rural)"] : []),
                 ...(wantsTributaryDrain ? ["Tributary & drain flow"] : []),
                 ...(wantsDemSlope ? ["DEM, slope maps"] : []),
                 ...(wantsFlowDirection ? ["Surface flow direction & accumulation maps"] : []),
@@ -339,6 +587,7 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
               ]}
               rwqSeason={rwqSeason}
               onStpDataLoaded={onStpDataLoaded}
+              aviralTiff={showPhaseOnMap ? phaseTiff : null}
             />
           </div>
 
@@ -368,7 +617,7 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
                     selectedDataUsed={snap.selectedDataUsed}
                     onToggleDataUsed={onToggleDataUsed}
                     onProceed={onProceed}
-                    proceedDisabled={selectedZones.length === 0 || snap.selectedDataUsed.length === 0}
+                    proceedDisabled={snap.selectedDataUsed.length === 0}
                     proceededOnce={snap.proceededOnce}
                     onNext={onNext}
                     onPrevious={onPrevious}
@@ -377,6 +626,16 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
                     zoneOptions={zoneOptions}
                     displayedZones={displayedZones}
                     onZoneChange={onZoneChange}
+                    criteriaWeights={criteriaWeights}
+                    onWeightChange={onWeightChange}
+                    onGenerateSuitability={onGeneratePhaseRaster}
+                    suitabilityLoading={phaseLoading}
+                    suitabilityError={phaseError}
+                    suitabilityReady={!!phaseTiff}
+                    showSuitabilityOnMap={showPhaseOnMap}
+                    onToggleSuitabilityOnMap={() => patchSnap({ showPhaseOnMap: !snap.showPhaseOnMap })}
+                    showAviralPanel={snap.showPhasePanel}
+                    onToggleAviralPanel={() => patchSnap({ showPhasePanel: !snap.showPhasePanel })}
                   />
                 </div>
               </div>
@@ -408,6 +667,218 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
                     <span className="font-semibold">Selected Inputs:</span> {snap.selectedDataUsed.length}
                   </p>
                 </div>
+
+                {wantsRiverFlow ? (
+                  <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3">
+                    <p className="mb-2 text-sm font-bold text-blue-900">River Flow (Monthly)</p>
+                    {outputLoading && !riverFlowData ? <p className="text-sm text-blue-700">Loading river flow data…</p> : null}
+                    {riverFlowError ? <p className="text-sm text-red-700">{riverFlowError}</p> : null}
+                    {riverFlowData && (
+                      <>
+                        {/* Filters */}
+                        <div className="mb-2 flex flex-wrap gap-2">
+                          <div className="flex items-center gap-1">
+                            <label className="text-xs font-semibold text-slate-600">Year:</label>
+                            <select className="rounded border border-slate-300 px-1 py-0.5 text-xs" value={rfYear} onChange={e => setRfYear(e.target.value === "all" ? "all" : Number(e.target.value))}>
+                              <option value="all">All</option>
+                              {rfYears.map(y => <option key={y} value={y}>{y}</option>)}
+                            </select>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <label className="text-xs font-semibold text-slate-600">Month:</label>
+                            <select className="rounded border border-slate-300 px-1 py-0.5 text-xs" value={rfMonth} onChange={e => setRfMonth(e.target.value === "all" ? "all" : Number(e.target.value))}>
+                              <option value="all">All</option>
+                              {rfMonths.map(m => <option key={m} value={m}>{m}</option>)}
+                            </select>
+                          </div>
+                          <span className="ml-auto text-xs text-slate-500">{rfFiltered.length} records</span>
+                        </div>
+                        {/* Table */}
+                        <div className="max-h-72 overflow-auto rounded border border-blue-100 bg-white">
+                          <table className="w-full border-collapse text-xs text-slate-700">
+                            <thead className="sticky top-0 bg-blue-100">
+                              <tr>
+                                <th className="border border-blue-200 px-2 py-1 text-left">Subbasin</th>
+                                <th className="border border-blue-200 px-2 py-1 text-left">SUB</th>
+                                <th className="border border-blue-200 px-2 py-1 text-right">Year</th>
+                                <th className="border border-blue-200 px-2 py-1 text-right">Month</th>
+                                <th className="border border-blue-200 px-2 py-1 text-right">Area (km²)</th>
+                                <th className="border border-blue-200 px-2 py-1 text-right">Flow In (cm)</th>
+                                <th className="border border-blue-200 px-2 py-1 text-right">Flow Out (cm)</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {rfFiltered.map((r, i) => (
+                                <tr key={`${r.yyyyddd}-${r.Subbasin}`} className={i % 2 === 0 ? "bg-white" : "bg-blue-50"}>
+                                  <td className="border border-blue-100 px-2 py-1">{r.Subbasin}</td>
+                                  <td className="border border-blue-100 px-2 py-1">{r.SUB}</td>
+                                  <td className="border border-blue-100 px-2 py-1 text-right">{r.year}</td>
+                                  <td className="border border-blue-100 px-2 py-1 text-right">{r.month}</td>
+                                  <td className="border border-blue-100 px-2 py-1 text-right">{r.area_km2.toFixed(2)}</td>
+                                  <td className="border border-blue-100 px-2 py-1 text-right">{r.flow_in_cm.toFixed(4)}</td>
+                                  <td className="border border-blue-100 px-2 py-1 text-right">{r.flow_out_c.toFixed(4)}</td>
+                                </tr>
+                              ))}
+                              {rfFiltered.length === 0 && (
+                                <tr><td colSpan={7} className="px-2 py-3 text-center text-slate-400 italic">No records match the selected filters.</td></tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : null}
+
+                {wantsPopulation ? (
+                  <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50 p-3">
+                    <p className="mb-1 text-sm font-bold text-violet-900">Population (Urban/Rural)</p>
+                    {outputLoading && !populationData ? <p className="text-sm text-violet-700">Loading population data…</p> : null}
+                    {populationError ? <p className="text-sm text-red-700">{populationError}</p> : null}
+                    {populationData && (
+                      <>
+                        {/* Legend */}
+                        <div className="mb-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-600">
+                          <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-3 rounded-sm" style={{ background: "#86efac" }} />≤500</span>
+                          <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-3 rounded-sm" style={{ background: "#479fda" }} />501–1000</span>
+                          <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-3 rounded-sm" style={{ background: "#facc15" }} />1001–2000</span>
+                          <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-3 rounded-sm" style={{ background: "#f97316" }} />2001–5000</span>
+                          <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-3 rounded-sm" style={{ background: "#dc2626" }} />{">"}5000</span>
+                        </div>
+                        <p className="mb-2 text-[11px] text-slate-500">
+                          {populationData.length} villages · Total population: <strong>{populationTotal != null ? populationTotal.toLocaleString() : "—"}</strong>
+                        </p>
+                        <div className="max-h-72 overflow-auto rounded border border-violet-100 bg-white">
+                          <table className="w-full border-collapse text-xs text-slate-700">
+                            <thead className="sticky top-0 bg-violet-100">
+                              <tr>
+                                <th className="border border-violet-200 px-2 py-1 text-left">Village</th>
+                                <th className="border border-violet-200 px-2 py-1 text-left">Block</th>
+                                <th className="border border-violet-200 px-2 py-1 text-left">U/R</th>
+                                <th className="border border-violet-200 px-2 py-1 text-right">Population</th>
+                                <th className="border border-violet-200 px-2 py-1 text-right">HH</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {populationData.map((r, i) => (
+                                <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-violet-50"}>
+                                  <td className="border border-violet-100 px-2 py-1 font-medium max-w-[90px] truncate" title={r.village}>{r.village || "—"}</td>
+                                  <td className="border border-violet-100 px-2 py-1 max-w-[70px] truncate" title={r.block}>{r.block || "—"}</td>
+                                  <td className="border border-violet-100 px-2 py-1">{r.urban_rural || "—"}</td>
+                                  <td className="border border-violet-100 px-2 py-1 text-right">{r.total_population != null ? r.total_population.toLocaleString() : "—"}</td>
+                                  <td className="border border-violet-100 px-2 py-1 text-right">{r.total_households != null ? r.total_households.toLocaleString() : "—"}</td>
+                                </tr>
+                              ))}
+                              {populationData.length === 0 && (
+                                <tr><td colSpan={5} className="px-2 py-3 text-center text-slate-400 italic">No villages found in selected zones.</td></tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : null}
+
+                {wantsGramPanchayat ? (
+                  <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                    <p className="mb-2 text-sm font-bold text-emerald-900">Gram Panchayat Data</p>
+                    {outputLoading && !gramPanchayatData ? <p className="text-sm text-emerald-700">Loading gram panchayat data…</p> : null}
+                    {gramPanchayatError ? <p className="text-sm text-red-700">{gramPanchayatError}</p> : null}
+                    {gramPanchayatData && (
+                      <>
+                        <p className="mb-2 text-[11px] text-slate-500">{gramPanchayatData.length} gram panchayat(s) found in selected zones</p>
+                        <div className="max-h-72 overflow-auto rounded border border-emerald-100 bg-white">
+                          <table className="w-full border-collapse text-xs text-slate-700">
+                            <thead className="sticky top-0 bg-emerald-100">
+                              <tr>
+                                <th className="border border-emerald-200 px-2 py-1 text-left">Name</th>
+                                <th className="border border-emerald-200 px-2 py-1 text-left">Zone</th>
+                                <th className="border border-emerald-200 px-2 py-1 text-right">Sub-dist Code</th>
+                                <th className="border border-emerald-200 px-2 py-1 text-right">ID</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {gramPanchayatData.map((r, i) => (
+                                <tr key={r.id ?? i} className={i % 2 === 0 ? "bg-white" : "bg-emerald-50"}>
+                                  <td className="border border-emerald-100 px-2 py-1 font-medium">{r.name || "—"}</td>
+                                  <td className="border border-emerald-100 px-2 py-1">{r.zone || "—"}</td>
+                                  <td className="border border-emerald-100 px-2 py-1 text-right">{r.subdis_cod ?? "—"}</td>
+                                  <td className="border border-emerald-100 px-2 py-1 text-right">{r.id ?? "—"}</td>
+                                </tr>
+                              ))}
+                              {gramPanchayatData.length === 0 && (
+                                <tr><td colSpan={4} className="px-2 py-3 text-center text-slate-400 italic">No gram panchayats found in selected zones.</td></tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : null}
+
+                {wantsIndustrial ? (
+                  <div className="mt-3 rounded-lg border border-orange-200 bg-orange-50 p-3">
+                    <p className="mb-2 text-sm font-bold text-orange-900">Industrial Discharge</p>
+                    {outputLoading && !industrialLayers ? <p className="text-sm text-orange-700">Loading industrial data…</p> : null}
+                    {industrialError ? <p className="text-sm text-red-700">{industrialError}</p> : null}
+                    {industrialLayers && (
+                      <>
+                        {/* Legend */}
+                        <div className="mb-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-600">
+                          <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-full bg-green-500" />Green (low)</span>
+                          <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-full bg-orange-400" />Orange (medium)</span>
+                          <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" />Red (high)</span>
+                        </div>
+                        <p className="mb-2 text-[11px] text-slate-500">
+                          {industrialLayers.reduce((s, l) => s + l.count, 0)} industries found across {industrialLayers.filter(l => l.count > 0).length} layer(s)
+                        </p>
+                        {industrialLayers.filter(l => l.count > 0).map((lyr) => (
+                          <div key={lyr.layer} className="mb-3">
+                            <p className="mb-1 text-xs font-semibold text-slate-800">{lyr.label} <span className="text-slate-400 font-normal">({lyr.count})</span></p>
+                            {lyr.error ? <p className="text-xs text-red-600">{lyr.error}</p> : (
+                              <div className="max-h-48 overflow-auto rounded border border-orange-100 bg-white">
+                                <table className="w-full border-collapse text-xs text-slate-700">
+                                  <thead className="sticky top-0 bg-orange-100">
+                                    <tr>
+                                      <th className="border border-orange-200 px-2 py-1 text-left">Name</th>
+                                      <th className="border border-orange-200 px-2 py-1 text-left">Type</th>
+                                      <th className="border border-orange-200 px-2 py-1 text-left">Cat.</th>
+                                      <th className="border border-orange-200 px-2 py-1 text-right">Dist (km)</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {lyr.records.map((rec, i) => {
+                                      const cat = (rec.category ?? "").toLowerCase();
+                                      const dotColor = cat === "red" ? "#ef4444" : cat === "orange" ? "#f97316" : "#22c55e";
+                                      return (
+                                        <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-orange-50"}>
+                                          <td className="border border-orange-100 px-2 py-1 max-w-[90px] truncate" title={rec.name}>{rec.name ?? "—"}</td>
+                                          <td className="border border-orange-100 px-2 py-1 max-w-[80px] truncate" title={rec.type_of_industry}>{rec.type_of_industry ?? "—"}</td>
+                                          <td className="border border-orange-100 px-2 py-1">
+                                            <span className="flex items-center gap-1">
+                                              <span className="inline-block h-2 w-2 rounded-full shrink-0" style={{ background: dotColor }} />
+                                              {rec.category ?? "—"}
+                                            </span>
+                                          </td>
+                                          <td className="border border-orange-100 px-2 py-1 text-right">{rec.dist_km != null ? Number(rec.dist_km).toFixed(2) : "—"}</td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        {industrialLayers.every(l => l.count === 0) && (
+                          <p className="text-xs text-slate-500">No industries found in selected zones.</p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ) : null}
 
                 {wantsTributaryDrain ? (
                   <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">

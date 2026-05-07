@@ -26,8 +26,18 @@ type SplitMasterPanelProps = {
   onClearZones?: () => void;
   aviralCriteria?: string[];
   onAviralCriteriaChange?: (criteria: string[]) => void;
-  activeModule: "Aviral Ganga" | "Nirmal Ganga" | "STP Suitability";
-  onActiveModuleChange: (module: "Aviral Ganga" | "Nirmal Ganga" | "STP Suitability") => void;
+  onCombinedTiffChange?: (tiff: ArrayBuffer | null) => void;
+  nirmalCriteria?: string[];
+  onNirmalCriteriaChange?: (criteria: string[]) => void;
+  onNirmalCombinedTiffChange?: (tiff: ArrayBuffer | null) => void;
+  janCriteria?: string[];
+  onJanCriteriaChange?: (criteria: string[]) => void;
+  onJanCombinedTiffChange?: (tiff: ArrayBuffer | null) => void;
+  arthCriteria?: string[];
+  onArthCriteriaChange?: (criteria: string[]) => void;
+  onArthCombinedTiffChange?: (tiff: ArrayBuffer | null) => void;
+  activeModule: "Aviral Ganga" | "Nirmal Ganga" | "Jan Ganga" | "Arth Ganga" | "STP Suitability";
+  onActiveModuleChange: (module: "Aviral Ganga" | "Nirmal Ganga" | "Jan Ganga" | "Arth Ganga" | "STP Suitability") => void;
   onResetAllSTP?: () => void;
 };
 
@@ -66,6 +76,16 @@ export default function SplitMasterPanel({
   onClearZones,
   aviralCriteria = [],
   onAviralCriteriaChange,
+  onCombinedTiffChange,
+  nirmalCriteria = [],
+  onNirmalCriteriaChange,
+  onNirmalCombinedTiffChange,
+  janCriteria = [],
+  onJanCriteriaChange,
+  onJanCombinedTiffChange,
+  arthCriteria = [],
+  onArthCriteriaChange,
+  onArthCombinedTiffChange,
   activeModule,
   onActiveModuleChange,
   onResetAllSTP,
@@ -89,11 +109,207 @@ export default function SplitMasterPanel({
   }, [showZoneDropdown]);
 
   const AVIRAL_CRITERIA = [
+    "River flow",
+    "Tributary & drain flow",
     "Rainfall & runoff",
     "Groundwater recharge",
+    "Channel geometry (width, depth)",
     "DEM, slope maps",
-    "Tributary & drain flow",
+    "Surface flow direction & accumulation maps",
   ] as const;
+
+  const NIRMAL_CRITERIA = [
+    "River water quality",
+    "Groundwater quality",
+    "STP details",
+    "Drains & discharge points",
+    "Industrial discharge",
+    "Septage density",
+    "Solid waste hotspots",
+  ] as const;
+
+  const JAN_CRITERIA = [
+    "Population (urban/rural)",
+    "Gram Panchayat data",
+    "Fishing communities",
+    "Public participation plans",
+  ] as const;
+
+  const ARTH_CRITERIA = [
+    "Agriculture (crop area, water demand)",
+    "Irrigation dependency",
+    "Tourism & cultural nodes",
+    "Ghats & heritage sites",
+    "Economic activity zones",
+  ] as const;
+
+  const COMBINED_LABEL = "Combined Output";
+  const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:9000";
+
+  type CombinedMeta = { stage_name: string; criteria: string[]; weights: Record<string, number>; generated_at: number } | null;
+  const [combinedMeta, setCombinedMeta] = useState<CombinedMeta>(null);
+  const [nirmalCombinedMeta, setNirmalCombinedMeta] = useState<CombinedMeta>(null);
+  const [janCombinedMeta, setJanCombinedMeta] = useState<CombinedMeta>(null);
+  const [arthCombinedMeta, setArthCombinedMeta] = useState<CombinedMeta>(null);
+
+  // Track last-seen generated_at so we only re-fetch tiff when the raster actually changes
+  const aviralGenRef   = useRef<number | null>(null);
+  const nirmalGenRef   = useRef<number | null>(null);
+  const janGenRef      = useRef<number | null>(null);
+  const arthGenRef     = useRef<number | null>(null);
+  const aviralActiveRef  = useRef(false);
+  const nirmalActiveRef  = useRef(false);
+  const janActiveRef     = useRef(false);
+  const arthActiveRef    = useRef(false);
+
+  // Poll backend every 10s — only update state when generated_at changes
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      fetch(`${BACKEND}/analysis/phase-raster-meta/0`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (cancelled) return;
+          const meta = d as CombinedMeta;
+          const gen = meta?.generated_at ?? null;
+          if (gen !== aviralGenRef.current) {
+            aviralGenRef.current = gen;
+            setCombinedMeta(meta ?? null);
+          }
+        })
+        .catch(() => {});
+    };
+    load();
+    const interval = setInterval(load, 10000);
+    return () => { cancelled = true; clearInterval(interval); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      fetch(`${BACKEND}/analysis/phase-raster-meta/1`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (cancelled) return;
+          const meta = d as CombinedMeta;
+          const gen = meta?.generated_at ?? null;
+          if (gen !== nirmalGenRef.current) {
+            nirmalGenRef.current = gen;
+            setNirmalCombinedMeta(meta ?? null);
+          }
+        })
+        .catch(() => {});
+    };
+    load();
+    const interval = setInterval(load, 10000);
+    return () => { cancelled = true; clearInterval(interval); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Fetch tiff only when Combined Output is toggled ON, or when the raster itself changed
+  useEffect(() => {
+    const active = aviralCriteria.includes(COMBINED_LABEL);
+    const wasActive = aviralActiveRef.current;
+    aviralActiveRef.current = active;
+    if (!onCombinedTiffChange) return;
+    if (!active || !combinedMeta) {
+      if (!active) onCombinedTiffChange(null);
+      return;
+    }
+    // Only re-fetch if we just toggled on OR the raster changed (combinedMeta ref already guards this)
+    if (!active && wasActive) { onCombinedTiffChange(null); return; }
+    fetch(`${BACKEND}/analysis/phase-raster-tiff/0`)
+      .then((r) => (r.ok ? r.arrayBuffer() : null))
+      .then((buf) => onCombinedTiffChange(buf ?? null))
+      .catch(() => onCombinedTiffChange(null));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aviralCriteria, combinedMeta]);
+
+  useEffect(() => {
+    const active = nirmalCriteria.includes(COMBINED_LABEL);
+    const wasActive = nirmalActiveRef.current;
+    nirmalActiveRef.current = active;
+    if (!onNirmalCombinedTiffChange) return;
+    if (!active || !nirmalCombinedMeta) {
+      if (!active) onNirmalCombinedTiffChange(null);
+      return;
+    }
+    if (!active && wasActive) { onNirmalCombinedTiffChange(null); return; }
+    fetch(`${BACKEND}/analysis/phase-raster-tiff/1`)
+      .then((r) => (r.ok ? r.arrayBuffer() : null))
+      .then((buf) => onNirmalCombinedTiffChange(buf ?? null))
+      .catch(() => onNirmalCombinedTiffChange(null));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nirmalCriteria, nirmalCombinedMeta]);
+
+  // Jan Ganga — stage index 2
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      fetch(`${BACKEND}/analysis/phase-raster-meta/2`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (cancelled) return;
+          const meta = d as CombinedMeta;
+          const gen = meta?.generated_at ?? null;
+          if (gen !== janGenRef.current) { janGenRef.current = gen; setJanCombinedMeta(meta ?? null); }
+        })
+        .catch(() => {});
+    };
+    load();
+    const interval = setInterval(load, 10000);
+    return () => { cancelled = true; clearInterval(interval); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const active = janCriteria.includes(COMBINED_LABEL);
+    const wasActive = janActiveRef.current;
+    janActiveRef.current = active;
+    if (!onJanCombinedTiffChange) return;
+    if (!active || !janCombinedMeta) { if (!active) onJanCombinedTiffChange(null); return; }
+    if (!active && wasActive) { onJanCombinedTiffChange(null); return; }
+    fetch(`${BACKEND}/analysis/phase-raster-tiff/2`)
+      .then((r) => (r.ok ? r.arrayBuffer() : null))
+      .then((buf) => onJanCombinedTiffChange(buf ?? null))
+      .catch(() => onJanCombinedTiffChange(null));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [janCriteria, janCombinedMeta]);
+
+  // Arth Ganga — stage index 3
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      fetch(`${BACKEND}/analysis/phase-raster-meta/3`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (cancelled) return;
+          const meta = d as CombinedMeta;
+          const gen = meta?.generated_at ?? null;
+          if (gen !== arthGenRef.current) { arthGenRef.current = gen; setArthCombinedMeta(meta ?? null); }
+        })
+        .catch(() => {});
+    };
+    load();
+    const interval = setInterval(load, 10000);
+    return () => { cancelled = true; clearInterval(interval); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const active = arthCriteria.includes(COMBINED_LABEL);
+    const wasActive = arthActiveRef.current;
+    arthActiveRef.current = active;
+    if (!onArthCombinedTiffChange) return;
+    if (!active || !arthCombinedMeta) { if (!active) onArthCombinedTiffChange(null); return; }
+    if (!active && wasActive) { onArthCombinedTiffChange(null); return; }
+    fetch(`${BACKEND}/analysis/phase-raster-tiff/3`)
+      .then((r) => (r.ok ? r.arrayBuffer() : null))
+      .then((buf) => onArthCombinedTiffChange(buf ?? null))
+      .catch(() => onArthCombinedTiffChange(null));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arthCriteria, arthCombinedMeta]);
 
   const allZonesSelected = zones.length > 0 && zones.every((z) => selectedZones.includes(z));
   const [showToolsSection, setShowToolsSection] = useState(false);
@@ -261,7 +477,7 @@ export default function SplitMasterPanel({
         }}
       >
         {/* Right column — Zone selector + Modules + Criteria, absolutely positioned */}
-        <div className="absolute top-0.5 right-4 flex flex-col items-end gap-2" style={{ maxWidth: activeModule === "Aviral Ganga" ? 260 : activeModule === "STP Suitability" ? 160 : 140, maxHeight: 560, overflowY: "auto" }}>
+        <div className="absolute top-0.5 right-4 flex flex-col items-end gap-2" style={{ maxWidth: activeModule === "Aviral Ganga" ? 260 : activeModule === "Nirmal Ganga" ? 260 : activeModule === "Jan Ganga" ? 260 : activeModule === "Arth Ganga" ? 260 : activeModule === "STP Suitability" ? 160 : 140, maxHeight: 560, overflowY: "auto" }}>
 
           {/* ── Zone selector ── */}
           <div className="w-full" ref={zoneDropdownRef}>
@@ -343,9 +559,10 @@ export default function SplitMasterPanel({
                           type="checkbox"
                           checked={aviralCriteria.includes(criterion)}
                           onChange={() => {
-                            const next = aviralCriteria.includes(criterion)
-                              ? aviralCriteria.filter((c: string) => c !== criterion)
-                              : [...aviralCriteria, criterion];
+                            const withoutCombined = aviralCriteria.filter((c: string) => c !== COMBINED_LABEL);
+                            const next = withoutCombined.includes(criterion)
+                              ? withoutCombined.filter((c: string) => c !== criterion)
+                              : [...withoutCombined, criterion];
                             onAviralCriteriaChange?.(next);
                           }}
                           style={{ accentColor: "#60a5fa", width: 10, height: 10, flexShrink: 0, marginTop: 1 }}
@@ -353,6 +570,186 @@ export default function SplitMasterPanel({
                         <span style={{ fontSize: 9, color: "#cbd5e1", lineHeight: 1.3 }}>{criterion}</span>
                       </label>
                     ))}
+                    {combinedMeta && (
+                      <label style={{ display: "flex", alignItems: "flex-start", gap: 6, cursor: "pointer", marginTop: 3, paddingTop: 3, borderTop: "1px solid rgba(96,165,250,0.2)" }}>
+                        <input
+                          type="checkbox"
+                          checked={aviralCriteria.includes(COMBINED_LABEL)}
+                          onChange={() => {
+                            const next = aviralCriteria.includes(COMBINED_LABEL)
+                              ? aviralCriteria.filter((c: string) => c !== COMBINED_LABEL)
+                              : [COMBINED_LABEL]; // uncheck all others
+                            onAviralCriteriaChange?.(next);
+                          }}
+                          style={{ accentColor: "#34d399", width: 10, height: 10, flexShrink: 0, marginTop: 1 }}
+                        />
+                        <span style={{ fontSize: 9, color: "#34d399", lineHeight: 1.3, fontWeight: 700 }}>
+                          ⬡ {COMBINED_LABEL}
+                          <span style={{ display: "block", fontSize: 8, fontWeight: 400, color: "#94a3b8" }}>
+                            {combinedMeta.criteria.length} criteria · from Holistic
+                          </span>
+                        </span>
+                      </label>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Criteria — left of modules, only when Nirmal Ganga active */}
+            {activeModule === "Nirmal Ganga" && (
+              <div style={{ flexShrink: 1, minWidth: 0, maxWidth: 130 }}>
+                <p style={{ margin: "0 0 4px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#a78bfa99" }}>Criteria</p>
+                {selectedZones.length === 0 ? (
+                  <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(167,139,250,0.15)", borderRadius: 7, padding: "7px 10px" }}>
+                    <span style={{ fontSize: 9, color: "#64748b", fontStyle: "italic" }}>Select zones first</span>
+                  </div>
+                ) : (
+                  <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(167,139,250,0.2)", borderRadius: 7, padding: "3px 5px", display: "flex", flexDirection: "column", gap: 2 }}>
+                    {NIRMAL_CRITERIA.map((criterion) => (
+                      <label key={criterion} style={{ display: "flex", alignItems: "flex-start", gap: 6, cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={nirmalCriteria.includes(criterion)}
+                          onChange={() => {
+                            const withoutCombined = nirmalCriteria.filter((c: string) => c !== COMBINED_LABEL);
+                            const next = withoutCombined.includes(criterion)
+                              ? withoutCombined.filter((c: string) => c !== criterion)
+                              : [...withoutCombined, criterion];
+                            onNirmalCriteriaChange?.(next);
+                          }}
+                          style={{ accentColor: "#a78bfa", width: 10, height: 10, flexShrink: 0, marginTop: 1 }}
+                        />
+                        <span style={{ fontSize: 9, color: "#cbd5e1", lineHeight: 1.3 }}>{criterion}</span>
+                      </label>
+                    ))}
+                    {nirmalCombinedMeta && (
+                      <label style={{ display: "flex", alignItems: "flex-start", gap: 6, cursor: "pointer", marginTop: 3, paddingTop: 3, borderTop: "1px solid rgba(167,139,250,0.2)" }}>
+                        <input
+                          type="checkbox"
+                          checked={nirmalCriteria.includes(COMBINED_LABEL)}
+                          onChange={() => {
+                            const next = nirmalCriteria.includes(COMBINED_LABEL)
+                              ? nirmalCriteria.filter((c: string) => c !== COMBINED_LABEL)
+                              : [COMBINED_LABEL]; // uncheck all others
+                            onNirmalCriteriaChange?.(next);
+                          }}
+                          style={{ accentColor: "#34d399", width: 10, height: 10, flexShrink: 0, marginTop: 1 }}
+                        />
+                        <span style={{ fontSize: 9, color: "#34d399", lineHeight: 1.3, fontWeight: 700 }}>
+                          ⬡ {COMBINED_LABEL}
+                          <span style={{ display: "block", fontSize: 8, fontWeight: 400, color: "#94a3b8" }}>
+                            {nirmalCombinedMeta.criteria.length} criteria · from Holistic
+                          </span>
+                        </span>
+                      </label>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Jan Ganga criteria panel */}
+            {activeModule === "Jan Ganga" && (
+              <div style={{ flexShrink: 1, minWidth: 0, maxWidth: 130 }}>
+                <p style={{ margin: "0 0 4px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#34d39999" }}>Criteria</p>
+                {selectedZones.length === 0 ? (
+                  <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(52,211,153,0.15)", borderRadius: 7, padding: "7px 10px" }}>
+                    <span style={{ fontSize: 9, color: "#64748b", fontStyle: "italic" }}>Select zones first</span>
+                  </div>
+                ) : (
+                  <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(52,211,153,0.2)", borderRadius: 7, padding: "3px 5px", display: "flex", flexDirection: "column", gap: 2 }}>
+                    {JAN_CRITERIA.map((criterion) => (
+                      <label key={criterion} style={{ display: "flex", alignItems: "flex-start", gap: 6, cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={janCriteria.includes(criterion)}
+                          onChange={() => {
+                            const withoutCombined = janCriteria.filter((c: string) => c !== COMBINED_LABEL);
+                            const next = withoutCombined.includes(criterion)
+                              ? withoutCombined.filter((c: string) => c !== criterion)
+                              : [...withoutCombined, criterion];
+                            onJanCriteriaChange?.(next);
+                          }}
+                          style={{ accentColor: "#34d399", width: 10, height: 10, flexShrink: 0, marginTop: 1 }}
+                        />
+                        <span style={{ fontSize: 9, color: "#cbd5e1", lineHeight: 1.3 }}>{criterion}</span>
+                      </label>
+                    ))}
+                    {janCombinedMeta && (
+                      <label style={{ display: "flex", alignItems: "flex-start", gap: 6, cursor: "pointer", marginTop: 3, paddingTop: 3, borderTop: "1px solid rgba(52,211,153,0.2)" }}>
+                        <input
+                          type="checkbox"
+                          checked={janCriteria.includes(COMBINED_LABEL)}
+                          onChange={() => {
+                            const next = janCriteria.includes(COMBINED_LABEL)
+                              ? janCriteria.filter((c: string) => c !== COMBINED_LABEL)
+                              : [COMBINED_LABEL];
+                            onJanCriteriaChange?.(next);
+                          }}
+                          style={{ accentColor: "#34d399", width: 10, height: 10, flexShrink: 0, marginTop: 1 }}
+                        />
+                        <span style={{ fontSize: 9, color: "#34d399", lineHeight: 1.3, fontWeight: 700 }}>
+                          ⬡ {COMBINED_LABEL}
+                          <span style={{ display: "block", fontSize: 8, fontWeight: 400, color: "#94a3b8" }}>
+                            {janCombinedMeta.criteria.length} criteria · from Holistic
+                          </span>
+                        </span>
+                      </label>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Arth Ganga criteria panel */}
+            {activeModule === "Arth Ganga" && (
+              <div style={{ flexShrink: 1, minWidth: 0, maxWidth: 130 }}>
+                <p style={{ margin: "0 0 4px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#fb923c99" }}>Criteria</p>
+                {selectedZones.length === 0 ? (
+                  <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(251,146,60,0.15)", borderRadius: 7, padding: "7px 10px" }}>
+                    <span style={{ fontSize: 9, color: "#64748b", fontStyle: "italic" }}>Select zones first</span>
+                  </div>
+                ) : (
+                  <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(251,146,60,0.2)", borderRadius: 7, padding: "3px 5px", display: "flex", flexDirection: "column", gap: 2 }}>
+                    {ARTH_CRITERIA.map((criterion) => (
+                      <label key={criterion} style={{ display: "flex", alignItems: "flex-start", gap: 6, cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={arthCriteria.includes(criterion)}
+                          onChange={() => {
+                            const withoutCombined = arthCriteria.filter((c: string) => c !== COMBINED_LABEL);
+                            const next = withoutCombined.includes(criterion)
+                              ? withoutCombined.filter((c: string) => c !== criterion)
+                              : [...withoutCombined, criterion];
+                            onArthCriteriaChange?.(next);
+                          }}
+                          style={{ accentColor: "#fb923c", width: 10, height: 10, flexShrink: 0, marginTop: 1 }}
+                        />
+                        <span style={{ fontSize: 9, color: "#cbd5e1", lineHeight: 1.3 }}>{criterion}</span>
+                      </label>
+                    ))}
+                    {arthCombinedMeta && (
+                      <label style={{ display: "flex", alignItems: "flex-start", gap: 6, cursor: "pointer", marginTop: 3, paddingTop: 3, borderTop: "1px solid rgba(251,146,60,0.2)" }}>
+                        <input
+                          type="checkbox"
+                          checked={arthCriteria.includes(COMBINED_LABEL)}
+                          onChange={() => {
+                            const next = arthCriteria.includes(COMBINED_LABEL)
+                              ? arthCriteria.filter((c: string) => c !== COMBINED_LABEL)
+                              : [COMBINED_LABEL];
+                            onArthCriteriaChange?.(next);
+                          }}
+                          style={{ accentColor: "#34d399", width: 10, height: 10, flexShrink: 0, marginTop: 1 }}
+                        />
+                        <span style={{ fontSize: 9, color: "#34d399", lineHeight: 1.3, fontWeight: 700 }}>
+                          ⬡ {COMBINED_LABEL}
+                          <span style={{ display: "block", fontSize: 8, fontWeight: 400, color: "#94a3b8" }}>
+                            {arthCombinedMeta.criteria.length} criteria · from Holistic
+                          </span>
+                        </span>
+                      </label>
+                    )}
                   </div>
                 )}
               </div>
@@ -361,8 +758,8 @@ export default function SplitMasterPanel({
             {/* Modules — always on the right */}
             <div style={{ flexShrink: 0 }}>
               <p style={{ margin: "0 0 4px", textAlign: "right", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#60a5fa99" }}>Modules</p>
-              <div className="flex flex-col gap-1.5">
-                {(["Aviral Ganga",  "STP Suitability"] as const).map((moduleName) => (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 170, overflowY: "auto", overflowX: "hidden", paddingRight: 2, scrollbarWidth: "thin", scrollbarColor: "rgba(96,165,250,0.3) transparent" }}>
+                {(["Aviral Ganga", "Nirmal Ganga", "Jan Ganga", "Arth Ganga", "STP Suitability"] as const).map((moduleName) => (
                   <button
                     key={moduleName}
                     type="button"
@@ -371,7 +768,13 @@ export default function SplitMasterPanel({
                       activeModule === moduleName
                         ? moduleName === "STP Suitability"
                           ? "bg-blue-500/20 text-blue-200 ring-1 ring-blue-400/40"
-                          : "bg-emerald-500/20 text-emerald-200 ring-1 ring-emerald-400/40"
+                          : moduleName === "Nirmal Ganga"
+                          ? "bg-violet-500/20 text-violet-200 ring-1 ring-violet-400/40"
+                          : moduleName === "Jan Ganga"
+                          ? "bg-emerald-500/20 text-emerald-200 ring-1 ring-emerald-400/40"
+                          : moduleName === "Arth Ganga"
+                          ? "bg-orange-500/20 text-orange-200 ring-1 ring-orange-400/40"
+                          : "bg-sky-500/20 text-sky-200 ring-1 ring-sky-400/40"
                         : "bg-white/5 text-slate-300 ring-1 ring-white/5 hover:bg-white/10 hover:text-white"
                     }`}
                   >
@@ -384,7 +787,7 @@ export default function SplitMasterPanel({
         </div>
 
         {/* Left content — padded right to stay clear of the absolute right column */}
-        <div style={{ paddingRight: activeModule === "Aviral Ganga" ? 270 : activeModule === "STP Suitability" ? 170 : 150 }}>
+        <div style={{ paddingRight: activeModule === "Aviral Ganga" ? 270 : activeModule === "Nirmal Ganga" ? 270 : activeModule === "Jan Ganga" ? 270 : activeModule === "Arth Ganga" ? 270 : activeModule === "STP Suitability" ? 170 : 150 }}>
 
         {/* Row 1: Screens — single toggle + expand */}
         {(() => {

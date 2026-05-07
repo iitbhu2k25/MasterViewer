@@ -1,4 +1,20 @@
 // All stage criteria definitions — shared between /holistic and /split
+// Criteria that have real raster files on disk (per stage index).
+// Only stages/criteria listed here will show the Generate button.
+// Keep in sync with backend/holistic/views.py _build_phase_raster_map().
+export const STAGE_RASTER_CRITERIA: Record<number, string[]> = {
+  0: [
+    "Rainfall & runoff",
+    "Groundwater recharge",
+    "DEM, slope maps",
+    "Surface flow direction & accumulation maps",
+  ],
+  1: [
+    "River water quality (BOD, DO, COD, pH, Turbidity)",
+    "Groundwater quality",
+  ],
+  // Stages 2–5: add criteria here once raster files are placed on the server
+};
 
 export type StageConfig = {
   title: string;

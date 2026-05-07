@@ -1011,6 +1011,100 @@ def analysis_tributary_drain(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+def analysis_river_flow(request):
+    parsed, err = _parse_payload_and_selected_zones(request)
+    if err:
+        return err
+    selected_zones = parsed["selected_zones"]
+
+    try:
+        resolved, zone_err = _resolve_zone_geometries(selected_zones)
+        if zone_err:
+            return zone_err
+        zone_geometries = resolved["zone_geometries"]
+
+        zone_shapes: dict[str, object] = {}
+        for zone_name, geoms in zone_geometries.items():
+            shp_list = [shape(g) for g in geoms if g]
+            if shp_list:
+                zone_shapes[zone_name] = unary_union(shp_list)
+
+        layer_geojson = _fetch_vector_layer_geojson("river_flow", workspace="dss_vector")
+        features = layer_geojson.get("features", []) or []
+
+        # Combined zone union for clipping
+        all_zone_shapes = list(zone_shapes.values())
+        combined_zone = unary_union(all_zone_shapes) if all_zone_shapes else None
+
+        matched_records = []
+        matched_subbasins = set()
+        geojson_features = []
+
+        for ft in features:
+            geom = ft.get("geometry")
+            props = ft.get("properties", {})
+            if not geom:
+                continue
+            try:
+                ft_shape = shape(geom)
+            except Exception:
+                continue
+            for zone_name, zone_shape in zone_shapes.items():
+                if ft_shape.intersects(zone_shape):
+                    subbasin_id = props.get("Subbasin")
+                    matched_records.append({
+                        "Subbasin": subbasin_id,
+                        "SUB": props.get("SUB"),
+                        "year": props.get("year"),
+                        "month": props.get("month"),
+                        "area_km2": props.get("area_km2"),
+                        "flow_in_cm": props.get("flow_in_cm"),
+                        "flow_out_c": props.get("flow_out_c"),
+                        "yyyyddd": props.get("yyyyddd"),
+                        "zone": zone_name,
+                    })
+                    matched_subbasins.add(subbasin_id)
+                    # Clip geometry to zone boundary so only inside-zone area renders
+                    try:
+                        clipped_shape = ft_shape.intersection(combined_zone) if combined_zone else ft_shape
+                        # Extract only polygon parts — drop points/lines from clipping artifacts
+                        from shapely.geometry import Polygon, MultiPolygon, GeometryCollection
+                        if isinstance(clipped_shape, GeometryCollection):
+                            polys = [g for g in clipped_shape.geoms if isinstance(g, (Polygon, MultiPolygon))]
+                            from shapely.ops import unary_union as _uu
+                            clipped_shape = _uu(polys) if polys else clipped_shape
+                        if clipped_shape.is_empty or not isinstance(clipped_shape, (Polygon, MultiPolygon)):
+                            clipped_geom = None
+                        else:
+                            clipped_geom = mapping(clipped_shape)
+                    except Exception:
+                        clipped_geom = geom
+                    if clipped_geom:
+                        geojson_features.append({
+                            "type": "Feature",
+                            "geometry": clipped_geom,
+                            "properties": {
+                                "Subbasin": subbasin_id,
+                                "SUB": props.get("SUB"),
+                                "area_km2": props.get("area_km2"),
+                            },
+                        })
+                    break
+
+        return JsonResponse({
+            "records": matched_records,
+            "subbasin_ids": sorted(matched_subbasins),
+            "geojson": {"type": "FeatureCollection", "features": geojson_features},
+        }, safe=False)
+
+    except requests.RequestException as exc:
+        return JsonResponse({"detail": f"GeoServer fetch failed: {exc}"}, status=502)
+    except Exception as exc:
+        return JsonResponse({"detail": f"River flow analysis failed: {exc}"}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
 def analysis_dem_slope(request):
     parsed, err = _parse_payload_and_selected_zones(request)
     if err:
@@ -1333,6 +1427,57 @@ def analysis_nirmal_rwq_stats(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+def analysis_nirmal_gwq_stats(request):
+    """Return per-zone GWQ zonal stats (min/mean/max) from local nirmal/gwq.tif."""
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON body"}, status=400)
+
+    selected_zones = payload.get("selected_zones", [])
+    if isinstance(selected_zones, str):
+        try:
+            parsed = json.loads(selected_zones)
+            if isinstance(parsed, list):
+                selected_zones = parsed
+        except json.JSONDecodeError:
+            selected_zones = [selected_zones]
+
+    if not isinstance(selected_zones, list) or not selected_zones:
+        return JsonResponse({"detail": "selected_zones is required"}, status=400)
+
+    try:
+        resolved, err_resp = _resolve_zone_geometries(selected_zones)
+        if err_resp:
+            return err_resp
+        if not resolved:
+            return JsonResponse({"detail": "Selected zones not found"}, status=404)
+
+        zone_geometries = resolved["zone_geometries"]
+        gwq_path = Path(settings.MEDIA_ROOT) / "files" / "nirmal" / "gwq.tif"
+        if not gwq_path.exists():
+            return JsonResponse({"detail": f"GWQ raster not found at {gwq_path}"}, status=404)
+
+        with rasterio.open(gwq_path) as src:
+            stats = _zonal_stats_for_raster_dataset(src, zone_geometries)
+
+        by_zone = {
+            zone: {
+                "mean": round(v["mean"], 3) if v["mean"] is not None else None,
+                "min": round(v["min"], 3) if v["min"] is not None else None,
+                "max": round(v["max"], 3) if v["max"] is not None else None,
+            }
+            for zone, v in stats.items()
+        }
+
+        return JsonResponse({"gwq": by_zone, "zones": sorted(zone_geometries.keys())})
+
+    except Exception as exc:
+        return JsonResponse({"detail": f"GWQ stats failed: {exc}"}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
 def analysis_nirmal_stp(request):
     """Return STP points (from dss_vector:nirmal_stp_details) within selected zone polygons."""
     try:
@@ -1535,3 +1680,795 @@ def analysis_flow_direction(request):
         return JsonResponse({"detail": f"GeoServer fetch failed: {exc}"}, status=502)
     except Exception as exc:
         return JsonResponse({"detail": f"Flow direction analysis failed: {exc}"}, status=500)
+
+
+INDUSTRIAL_LAYERS = [
+    "bone_leather",
+    "chemical_fertilizer_oil",
+    "construction_material",
+    "electrical_electronics_battery",
+    "food_agro_allied",
+    "healthcare_hcf",
+    "metal_fabrication_engineering",
+    "mining_minerals",
+    "miscellaneous",
+    "paper_packaging_printing",
+    "textile_dyeing_carpet",
+    "unclassified",
+    "waste_management",
+]
+
+INDUSTRY_LABELS = {
+    "bone_leather":                   "Bone & Leather",
+    "chemical_fertilizer_oil":        "Chemical / Fertilizer / Oil",
+    "construction_material":          "Construction Material",
+    "electrical_electronics_battery": "Electrical / Electronics / Battery",
+    "food_agro_allied":               "Food & Agro Allied",
+    "healthcare_hcf":                 "Healthcare (HCF)",
+    "metal_fabrication_engineering":  "Metal Fabrication & Engineering",
+    "mining_minerals":                "Mining & Minerals",
+    "miscellaneous":                  "Miscellaneous",
+    "paper_packaging_printing":       "Paper / Packaging / Printing",
+    "textile_dyeing_carpet":          "Textile / Dyeing / Carpet",
+    "unclassified":                   "Unclassified",
+    "waste_management":               "Waste Management",
+}
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def analysis_industrial_discharge(request):
+    parsed, err = _parse_payload_and_selected_zones(request)
+    if err:
+        return err
+    selected_zones = parsed["selected_zones"]
+
+    try:
+        resolved, zone_err = _resolve_zone_geometries(selected_zones)
+        if zone_err:
+            return zone_err
+        zone_geometries = resolved["zone_geometries"]
+
+        zone_shapes: dict[str, object] = {}
+        for zone_name, geoms in zone_geometries.items():
+            shp_list = [shape(g) for g in geoms if g]
+            if shp_list:
+                zone_shapes[zone_name] = unary_union(shp_list)
+
+        combined_zone = unary_union(list(zone_shapes.values())) if zone_shapes else None
+
+        layers_output = []
+        all_geojson_features = []
+
+        for layer_name in INDUSTRIAL_LAYERS:
+            label = INDUSTRY_LABELS.get(layer_name, layer_name)
+            try:
+                layer_geojson = _fetch_vector_layer_geojson(layer_name, workspace="dss_vector")
+                features = layer_geojson.get("features", []) or []
+
+                records = []
+                for ft in features:
+                    geom = ft.get("geometry")
+                    props = ft.get("properties", {})
+                    if not geom:
+                        continue
+                    try:
+                        ft_shape = shape(geom)
+                    except Exception:
+                        continue
+
+                    for zone_name, zone_shape in zone_shapes.items():
+                        if ft_shape.within(zone_shape) or ft_shape.intersects(zone_shape):
+                            record = {
+                                "layer": layer_name,
+                                "label": label,
+                                "zone": zone_name,
+                                "name": props.get("name_&_add", ""),
+                                "district": props.get("district", ""),
+                                "type_of_industry": props.get("type_of_in", ""),
+                                "category": props.get("category", ""),
+                                "pollution_index": props.get("pollution_", ""),
+                                "industry_code": props.get("industry_c", ""),
+                                "near_river": props.get("near_river", ""),
+                                "dist_km": props.get("dist_km"),
+                                "distance_zone": props.get("distance_z", ""),
+                                "latitude": props.get("latitude"),
+                                "longitude": props.get("longitude"),
+                            }
+                            records.append(record)
+                            all_geojson_features.append({
+                                "type": "Feature",
+                                "geometry": geom,
+                                "properties": {
+                                    "layer": layer_name,
+                                    "label": label,
+                                    "name": props.get("name_&_add", ""),
+                                    "type_of_industry": props.get("type_of_in", ""),
+                                    "category": props.get("category", ""),
+                                    "pollution_index": props.get("pollution_", ""),
+                                    "near_river": props.get("near_river", ""),
+                                    "dist_km": props.get("dist_km"),
+                                    "distance_zone": props.get("distance_z", ""),
+                                },
+                            })
+                            break  # count each industry once
+
+                layers_output.append({
+                    "layer": layer_name,
+                    "label": label,
+                    "count": len(records),
+                    "records": records,
+                })
+
+            except Exception as exc:
+                layers_output.append({
+                    "layer": layer_name,
+                    "label": label,
+                    "error": str(exc),
+                    "count": 0,
+                    "records": [],
+                })
+
+        return JsonResponse({
+            "layers": layers_output,
+            "geojson": {"type": "FeatureCollection", "features": all_geojson_features},
+            "total": sum(l["count"] for l in layers_output),
+        }, safe=False)
+
+    except requests.RequestException as exc:
+        return JsonResponse({"detail": f"GeoServer fetch failed: {exc}"}, status=502)
+    except Exception as exc:
+        return JsonResponse({"detail": f"Industrial discharge analysis failed: {exc}"}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def analysis_gram_panchayat(request):
+    """Return gram panchayat (STP_Village) polygons clipped to selected zones."""
+    parsed, err = _parse_payload_and_selected_zones(request)
+    if err:
+        return err
+    selected_zones = parsed["selected_zones"]
+
+    try:
+        resolved, zone_err = _resolve_zone_geometries(selected_zones)
+        if zone_err:
+            return zone_err
+        zone_geometries = resolved["zone_geometries"]
+
+        zone_shapes = {z: unary_union([shape(g) for g in geoms]).buffer(0) for z, geoms in zone_geometries.items()}
+        combined_zone = unary_union(list(zone_shapes.values())).buffer(0)
+
+        gp_geojson = _fetch_vector_layer_geojson("STP_Village")
+        features = gp_geojson.get("features", []) or []
+
+        records = []
+        geojson_features = []
+
+        for ft in features:
+            geom = ft.get("geometry")
+            props = ft.get("properties", {}) or {}
+            if not geom:
+                continue
+            try:
+                ft_shape = shape(geom).buffer(0)  # repair invalid geometry
+            except Exception:
+                continue
+
+            if not ft_shape.intersects(combined_zone):
+                continue
+
+            try:
+                clipped = ft_shape.intersection(combined_zone)
+            except Exception:
+                # if intersection still fails, use the full shape if it's within, else skip
+                try:
+                    clipped = ft_shape if ft_shape.within(combined_zone) else None
+                except Exception:
+                    continue
+                if not clipped:
+                    continue
+
+            if clipped is None or clipped.is_empty:
+                continue
+
+            try:
+                zone_name = max(zone_shapes.keys(), key=lambda z: ft_shape.intersection(zone_shapes[z]).area)
+            except Exception:
+                zone_name = list(zone_shapes.keys())[0]
+
+            records.append({
+                "id": props.get("ID"),
+                "name": props.get("Name", ""),
+                "state_code": props.get("State_Code"),
+                "subdis_cod": props.get("subdis_cod"),
+                "zone": zone_name,
+            })
+
+            geojson_features.append({
+                "type": "Feature",
+                "geometry": mapping(clipped),
+                "properties": {
+                    "id": props.get("ID"),
+                    "name": props.get("Name", ""),
+                    "state_code": props.get("State_Code"),
+                    "subdis_cod": props.get("subdis_cod"),
+                    "zone": zone_name,
+                },
+            })
+
+        records.sort(key=lambda x: (x.get("zone") or "", x.get("name") or ""))
+
+        return JsonResponse({
+            "records": records,
+            "geojson": {"type": "FeatureCollection", "features": geojson_features},
+            "total": len(records),
+        })
+
+    except requests.RequestException as exc:
+        return JsonResponse({"detail": f"GeoServer fetch failed: {exc}"}, status=502)
+    except Exception as exc:
+        return JsonResponse({"detail": f"Gram panchayat analysis failed: {exc}"}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def analysis_population(request):
+    """Return village population (Village_population) polygons clipped to selected zones."""
+    parsed, err = _parse_payload_and_selected_zones(request)
+    if err:
+        return err
+    selected_zones = parsed["selected_zones"]
+
+    try:
+        resolved, zone_err = _resolve_zone_geometries(selected_zones)
+        if zone_err:
+            return zone_err
+        zone_geometries = resolved["zone_geometries"]
+
+        zone_shapes = {z: unary_union([shape(g) for g in geoms]).buffer(0) for z, geoms in zone_geometries.items()}
+        combined_zone = unary_union(list(zone_shapes.values())).buffer(0)
+
+        vp_geojson = _fetch_vector_layer_geojson("Village_population")
+        features = vp_geojson.get("features", []) or []
+
+        records = []
+        geojson_features = []
+
+        for ft in features:
+            geom = ft.get("geometry")
+            props = ft.get("properties", {}) or {}
+            if not geom:
+                continue
+            try:
+                ft_shape = shape(geom).buffer(0)
+            except Exception:
+                continue
+
+            if not ft_shape.intersects(combined_zone):
+                continue
+
+            try:
+                clipped = ft_shape.intersection(combined_zone)
+            except Exception:
+                try:
+                    clipped = ft_shape if ft_shape.within(combined_zone) else None
+                except Exception:
+                    continue
+                if not clipped:
+                    continue
+
+            if clipped is None or clipped.is_empty:
+                continue
+
+            try:
+                zone_name = max(zone_shapes.keys(), key=lambda z: ft_shape.intersection(zone_shapes[z]).area)
+            except Exception:
+                zone_name = list(zone_shapes.keys())[0]
+
+            total_pop = props.get("total_popu")
+            total_male = props.get("total_male")
+            total_fema = props.get("total_fema")
+            total_hous = props.get("total_hous")
+
+            records.append({
+                "village": props.get("village", ""),
+                "gram_panchayat": props.get("gram_panch", ""),
+                "block": props.get("block", ""),
+                "subdistrict": props.get("subdistric", ""),
+                "district": props.get("DISTRICT", ""),
+                "total_population": int(total_pop) if total_pop is not None else None,
+                "total_male": int(total_male) if total_male is not None else None,
+                "total_female": int(total_fema) if total_fema is not None else None,
+                "total_households": int(total_hous) if total_hous is not None else None,
+                "urban_rural": props.get("total_urba", ""),
+                "zone": zone_name,
+            })
+
+            geojson_features.append({
+                "type": "Feature",
+                "geometry": mapping(clipped),
+                "properties": {
+                    "village": props.get("village", ""),
+                    "gram_panchayat": props.get("gram_panch", ""),
+                    "block": props.get("block", ""),
+                    "district": props.get("DISTRICT", ""),
+                    "total_population": int(total_pop) if total_pop is not None else None,
+                    "total_male": int(total_male) if total_male is not None else None,
+                    "total_female": int(total_fema) if total_fema is not None else None,
+                    "total_households": int(total_hous) if total_hous is not None else None,
+                    "urban_rural": props.get("total_urba", ""),
+                    "zone": zone_name,
+                },
+            })
+
+        records.sort(key=lambda x: (x.get("zone") or "", x.get("village") or ""))
+
+        total_pop_sum = sum(r["total_population"] for r in records if r["total_population"] is not None)
+
+        return JsonResponse({
+            "records": records,
+            "geojson": {"type": "FeatureCollection", "features": geojson_features},
+            "total": len(records),
+            "total_population": total_pop_sum,
+        })
+
+    except requests.RequestException as exc:
+        return JsonResponse({"detail": f"GeoServer fetch failed: {exc}"}, status=502)
+    except Exception as exc:
+        return JsonResponse({"detail": f"Population analysis failed: {exc}"}, status=500)
+
+
+# ---------------------------------------------------------------------------
+# Phase raster analysis — shared for all 6 Holistic stages
+# ---------------------------------------------------------------------------
+
+def _build_phase_raster_map(stage_index: int) -> dict[str, Path]:
+    """Return criterion → raster path mapping for a given stage (0-based)."""
+    media = Path(settings.MEDIA_ROOT) / "files"
+    maps = [
+        # Stage 0 — Aviral Ganga
+        {
+            "Rainfall & runoff":                          media / "aviral" / "Rainfall"       / "rainfall_2024.tif",
+            "Groundwater recharge":                       media / "aviral" / "Recharge"       / "recharge_gw.tif",
+            "DEM, slope maps":                            media / "aviral" / "slope"           / "Slope_aviral.tif",
+            "Surface flow direction & accumulation maps": media / "aviral" / "flow_direction"  / "1.tif",
+        },
+        # Stage 1 — Nirmal Ganga
+        {
+            "River water quality (BOD, DO, COD, pH, Turbidity)": media / "nirmal" / "rwq_monsoon.tif",
+            "Groundwater quality":                                media / "nirmal" / "gwq.tif",
+        },
+        # Stage 2 — Jan Ganga
+        {
+            "Population (urban/rural)": media / "jan" / "population" / "population.tif",
+        },
+        # Stage 3 — Arth Ganga
+        {
+            "Agriculture (crop area, water demand)": media / "arth" / "agriculture" / "agriculture.tif",
+            "Irrigation dependency":                 media / "arth" / "irrigation"  / "irrigation.tif",
+        },
+        # Stage 4 — Gyan Ganga
+        {
+            "SWAT model outputs":           media / "gyan" / "swat"         / "swat.tif",
+            "Remote sensing + GIS maps":    media / "gyan" / "remote_sensing"/ "rs.tif",
+        },
+        # Stage 5 — Jeevant Ganga
+        {
+            "Wetlands, ponds, lakes":            media / "jeevant" / "wetlands"   / "wetlands.tif",
+            "Riparian vegetation":               media / "jeevant" / "vegetation" / "vegetation.tif",
+            "Floodplain & habitat data":         media / "jeevant" / "floodplain" / "floodplain.tif",
+        },
+    ]
+    return maps[stage_index] if 0 <= stage_index < len(maps) else {}
+
+
+# Keep old name as alias so existing aviral endpoint still works
+def _build_aviral_raster_map() -> dict[str, Path]:
+    return _build_phase_raster_map(0)
+
+
+def _aviral_normalize_to_01(arr: np.ndarray, nodata) -> np.ndarray:
+    """Mask nodata/negatives, then min-max normalise to 0–1 as float32."""
+    out = arr.astype(np.float32)
+    if nodata is not None:
+        out = np.where(np.abs(out - float(nodata)) < 1e-3, np.nan, out)
+    out = np.where(out < 0, np.nan, out)
+    mn, mx = np.nanmin(out), np.nanmax(out)
+    if mx > mn:
+        out = (out - mn) / (mx - mn)
+    else:
+        out = np.where(np.isnan(out), np.nan, 0.0)
+    return out
+
+
+def _aviral_reproject_to_wgs84_grid(
+    src_path: Path,
+    dst_transform,
+    dst_crs,
+    dst_shape: tuple,
+) -> np.ndarray:
+    """Reproject one raster band to a WGS84 grid, return normalised float32 array."""
+    from rasterio.warp import reproject as rio_reproject, Resampling as RioResampling
+    from rasterio.crs import CRS as RioCRS
+    UTM44N = RioCRS.from_epsg(32644)  # fallback for files stored without CRS metadata
+    with rasterio.open(src_path) as src:
+        src_crs = src.crs if src.crs else UTM44N
+        dst_arr = np.full(dst_shape, np.nan, dtype=np.float32)
+        rio_reproject(
+            source=rasterio.band(src, 1),
+            destination=dst_arr,
+            src_transform=src.transform,
+            src_crs=src_crs,
+            dst_transform=dst_transform,
+            dst_crs=dst_crs,
+            resampling=RioResampling.bilinear,
+            src_nodata=src.nodata,
+            dst_nodata=np.nan,
+        )
+        nodata = src.nodata
+    return _aviral_normalize_to_01(dst_arr, nodata)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def analysis_aviral(request):
+    """
+    Weighted combination of available Aviral rasters clipped to selected zones.
+
+    All rasters are reprojected to EPSG:4326 (WGS84 lat/lng) so georaster-layer-
+    for-leaflet can render them correctly on the Leaflet map.
+
+    Request body:
+        selected_zones:   list[str]
+        criteria_weights: dict[str, int]  — {criterion_label: influence 1-10}
+
+    Returns a GeoTIFF (float32, EPSG:4326, values 0–1).
+    """
+    from rasterio.crs import CRS as RioCRS
+
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON body"}, status=400)
+
+    selected_zones = payload.get("selected_zones", [])
+    if isinstance(selected_zones, str):
+        try:
+            selected_zones = json.loads(selected_zones)
+        except json.JSONDecodeError:
+            selected_zones = [selected_zones]
+
+    criteria_weights: dict = payload.get("criteria_weights", {})
+
+    if not isinstance(selected_zones, list) or not selected_zones:
+        return JsonResponse({"detail": "selected_zones is required"}, status=400)
+    if not criteria_weights:
+        return JsonResponse({"detail": "criteria_weights is required"}, status=400)
+
+    raster_map = _build_aviral_raster_map()
+
+    # Collect matched criteria with existing raster files
+    matched: list[tuple[str, Path, float]] = []
+    for criterion, influence in criteria_weights.items():
+        path = raster_map.get(criterion)
+        if path and path.exists():
+            matched.append((criterion, path, float(influence)))
+
+    if not matched:
+        available = [c for c, p in raster_map.items() if p.exists()]
+        return JsonResponse({
+            "detail": f"No raster data for selected criteria. Available: {available}."
+        }, status=422)
+
+    # Normalise weights → sum to 1
+    total_inf = sum(w for _, _, w in matched)
+    matched = [(c, p, w / total_inf) for c, p, w in matched]
+
+    try:
+        # Resolve zone geometries (WGS84)
+        resolved, zone_err = _resolve_zone_geometries(selected_zones)
+        if zone_err:
+            return zone_err
+        zone_geometries = resolved["zone_geometries"]
+        all_geoms_wgs84 = [shape(g) for geoms in zone_geometries.values() for g in geoms]
+        zone_union_wgs84 = unary_union(all_geoms_wgs84)
+
+        wgs84 = RioCRS.from_epsg(4326)
+
+        # Build a common WGS84 output grid that covers all matched rasters.
+        # Use ~30m resolution equivalent in degrees (≈0.0003°) capped to keep output manageable.
+        from rasterio.warp import transform_bounds
+        from rasterio.crs import CRS as RioCRS
+        UTM44N = RioCRS.from_epsg(32644)
+        all_bounds_wgs84 = []
+        for _, path, _ in matched:
+            with rasterio.open(path) as src:
+                src_crs = src.crs if src.crs else UTM44N
+                b = transform_bounds(src_crs, wgs84, *src.bounds)
+                all_bounds_wgs84.append(b)
+
+        minx = min(b[0] for b in all_bounds_wgs84)
+        miny = min(b[1] for b in all_bounds_wgs84)
+        maxx = max(b[2] for b in all_bounds_wgs84)
+        maxy = max(b[3] for b in all_bounds_wgs84)
+
+        # ~512 cols or ~0.001° pixels, whichever is coarser
+        target_cols = 512
+        px = max((maxx - minx) / target_cols, 0.001)
+        py = px
+        ncols = max(1, int(np.ceil((maxx - minx) / px)))
+        nrows = max(1, int(np.ceil((maxy - miny) / py)))
+
+        from rasterio.transform import from_bounds as rio_from_bounds
+        dst_transform = rio_from_bounds(minx, miny, maxx, maxy, ncols, nrows)
+        dst_shape = (nrows, ncols)
+
+        # Weighted sum on the common WGS84 grid
+        combined   = np.zeros(dst_shape, dtype=np.float32)
+        weight_sum = np.zeros(dst_shape, dtype=np.float32)
+
+        for _, path, weight in matched:
+            band = _aviral_reproject_to_wgs84_grid(path, dst_transform, wgs84, dst_shape)
+            valid = ~np.isnan(band)
+            combined[valid]   += band[valid] * weight
+            weight_sum[valid] += weight
+
+        with np.errstate(invalid="ignore"):
+            combined = np.where(weight_sum > 0, combined / weight_sum, np.nan)
+
+        # Clip to zone union (already WGS84)
+        nodata_val = -9999.0
+        combined_3d = combined[np.newaxis, :, :]
+
+        clip_profile = {
+            "driver": "GTiff", "dtype": "float32", "count": 1,
+            "crs": wgs84, "transform": dst_transform,
+            "width": ncols, "height": nrows,
+            "nodata": nodata_val,
+        }
+        with MemoryFile() as tmp_mem:
+            with tmp_mem.open(**clip_profile) as tmp_ds:
+                tmp_ds.write(np.where(np.isnan(combined_3d), nodata_val, combined_3d))
+            tmp_mem.seek(0)
+            with rasterio.open(tmp_mem) as tmp_src:
+                clipped, clip_transform = mask(
+                    tmp_src, [mapping(zone_union_wgs84)],
+                    crop=True, filled=True, nodata=nodata_val,
+                )
+
+        out_profile = clip_profile.copy()
+        out_profile.update({
+            "height": clipped.shape[1], "width": clipped.shape[2],
+            "transform": clip_transform, "compress": "lzw",
+        })
+        with MemoryFile() as out_mem:
+            with out_mem.open(**out_profile) as out_ds:
+                out_ds.write(clipped)
+            tiff_bytes = out_mem.read()
+
+        matched_labels = [c for c, _, _ in matched]
+        response = HttpResponse(tiff_bytes, content_type="image/tiff")
+        response["Content-Disposition"] = 'inline; filename="aviral_analysis.tif"'
+        response["X-Matched-Criteria"] = ",".join(matched_labels)
+        return response
+
+    except Exception as exc:
+        return JsonResponse({"detail": f"Aviral analysis failed: {exc}"}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def analysis_phase_raster(request):
+    """
+    Generic weighted-raster analysis for any of the 6 Holistic stages.
+
+    Request body:
+        stage_index:      int           — 0-based stage index (0=Aviral … 5=Jeevant)
+        selected_zones:   list[str]
+        criteria_weights: dict[str, int]
+
+    Returns a GeoTIFF (float32, EPSG:4326, values 0–1).
+    """
+    from rasterio.crs import CRS as RioCRS
+
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON body"}, status=400)
+
+    stage_index = int(payload.get("stage_index", 0))
+    selected_zones = payload.get("selected_zones", [])
+    if isinstance(selected_zones, str):
+        try:
+            selected_zones = json.loads(selected_zones)
+        except json.JSONDecodeError:
+            selected_zones = [selected_zones]
+
+    criteria_weights: dict = payload.get("criteria_weights", {})
+
+    if not isinstance(selected_zones, list) or not selected_zones:
+        return JsonResponse({"detail": "selected_zones is required"}, status=400)
+    if not criteria_weights:
+        return JsonResponse({"detail": "criteria_weights is required"}, status=400)
+
+    raster_map = _build_phase_raster_map(stage_index)
+
+    matched: list[tuple[str, Path, float]] = []
+    for criterion, influence in criteria_weights.items():
+        path = raster_map.get(criterion)
+        if path and path.exists():
+            matched.append((criterion, path, float(influence)))
+
+    if not matched:
+        available = [c for c, p in raster_map.items() if p.exists()]
+        return JsonResponse({
+            "detail": f"No raster data available for selected criteria. Available: {available}."
+        }, status=422)
+
+    total_inf = sum(w for _, _, w in matched)
+    matched = [(c, p, w / total_inf) for c, p, w in matched]
+
+    try:
+        resolved, zone_err = _resolve_zone_geometries(selected_zones)
+        if zone_err:
+            return zone_err
+        zone_geometries = resolved["zone_geometries"]
+        all_geoms_wgs84 = [shape(g) for geoms in zone_geometries.values() for g in geoms]
+        zone_union_wgs84 = unary_union(all_geoms_wgs84)
+
+        wgs84 = RioCRS.from_epsg(4326)
+
+        all_bounds_wgs84 = []
+        for _, path, _ in matched:
+            with rasterio.open(path) as src:
+                from rasterio.warp import transform_bounds
+                b = transform_bounds(src.crs or RioCRS.from_epsg(32644), wgs84, *src.bounds)
+                all_bounds_wgs84.append(b)
+
+        minx = min(b[0] for b in all_bounds_wgs84)
+        miny = min(b[1] for b in all_bounds_wgs84)
+        maxx = max(b[2] for b in all_bounds_wgs84)
+        maxy = max(b[3] for b in all_bounds_wgs84)
+
+        target_cols = 512
+        px = max((maxx - minx) / target_cols, 0.001)
+        py = px
+        ncols = max(1, int(np.ceil((maxx - minx) / px)))
+        nrows = max(1, int(np.ceil((maxy - miny) / py)))
+
+        from rasterio.transform import from_bounds as rio_from_bounds
+        dst_transform = rio_from_bounds(minx, miny, maxx, maxy, ncols, nrows)
+        dst_shape = (nrows, ncols)
+
+        combined   = np.zeros(dst_shape, dtype=np.float32)
+        weight_sum = np.zeros(dst_shape, dtype=np.float32)
+
+        for _, path, weight in matched:
+            band = _aviral_reproject_to_wgs84_grid(path, dst_transform, wgs84, dst_shape)
+            valid = ~np.isnan(band)
+            combined[valid]   += band[valid] * weight
+            weight_sum[valid] += weight
+
+        with np.errstate(invalid="ignore"):
+            combined = np.where(weight_sum > 0, combined / weight_sum, np.nan)
+
+        nodata_val = -9999.0
+        combined_3d = combined[np.newaxis, :, :]
+
+        clip_profile = {
+            "driver": "GTiff", "dtype": "float32", "count": 1,
+            "crs": wgs84, "transform": dst_transform,
+            "width": ncols, "height": nrows,
+            "nodata": nodata_val,
+        }
+        with MemoryFile() as tmp_mem:
+            with tmp_mem.open(**clip_profile) as tmp_ds:
+                tmp_ds.write(np.where(np.isnan(combined_3d), nodata_val, combined_3d))
+            tmp_mem.seek(0)
+            with rasterio.open(tmp_mem) as tmp_src:
+                clipped, clip_transform = mask(
+                    tmp_src, [mapping(zone_union_wgs84)],
+                    crop=True, filled=True, nodata=nodata_val,
+                )
+
+        out_profile = clip_profile.copy()
+        out_profile.update({
+            "height": clipped.shape[1], "width": clipped.shape[2],
+            "transform": clip_transform, "compress": "lzw",
+        })
+        with MemoryFile() as out_mem:
+            with out_mem.open(**out_profile) as out_ds:
+                out_ds.write(clipped)
+            tiff_bytes = out_mem.read()
+
+        stage_names = ["aviral", "nirmal", "jan", "arth", "gyan", "jeevant"]
+        fname = f"{stage_names[stage_index] if stage_index < len(stage_names) else 'phase'}_analysis.tif"
+        response = HttpResponse(tiff_bytes, content_type="image/tiff")
+        response["Content-Disposition"] = f'inline; filename="{fname}"'
+        return response
+
+    except Exception as exc:
+        return JsonResponse({"detail": f"Phase raster analysis failed: {exc}"}, status=500)
+
+
+# ---------------------------------------------------------------------------
+# Phase raster persistence  (save to media/temp, serve metadata + file)
+# ---------------------------------------------------------------------------
+
+def _phase_raster_paths(stage_index: int):
+    temp_dir = Path(settings.MEDIA_ROOT) / "temp"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    tif_path  = temp_dir / f"phase_raster_{stage_index}.tif"
+    meta_path = temp_dir / f"phase_raster_{stage_index}.json"
+    return tif_path, meta_path
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def save_phase_raster(request):
+    """
+    Save a generated phase raster to media/temp so the /split page can read it.
+
+    Expects multipart/form-data with:
+        stage_index  int
+        stage_name   str
+        criteria     JSON array of strings
+        weights      JSON object {criterion: weight}
+        tiff         binary GeoTIFF file
+
+    Returns JSON { ok: true, stage_index, saved_at }.
+    """
+    try:
+        stage_index = int(request.POST.get("stage_index", 0))
+        stage_name  = request.POST.get("stage_name", f"Stage {stage_index + 1}")
+        criteria    = json.loads(request.POST.get("criteria", "[]"))
+        weights     = json.loads(request.POST.get("weights", "{}"))
+        tiff_file   = request.FILES.get("tiff")
+        if not tiff_file:
+            return JsonResponse({"detail": "tiff file is required"}, status=400)
+
+        tif_path, meta_path = _phase_raster_paths(stage_index)
+        tif_path.write_bytes(tiff_file.read())
+
+        import time
+        meta = {
+            "stage_index": stage_index,
+            "stage_name":  stage_name,
+            "criteria":    criteria,
+            "weights":     weights,
+            "generated_at": int(time.time() * 1000),
+        }
+        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+
+        return JsonResponse({"ok": True, "stage_index": stage_index, "saved_at": meta["generated_at"]})
+    except Exception as exc:
+        return JsonResponse({"detail": f"Save failed: {exc}"}, status=500)
+
+
+@require_http_methods(["GET"])
+def phase_raster_meta(request, stage_index: int):
+    """Return metadata JSON for a saved phase raster (no binary data)."""
+    _, meta_path = _phase_raster_paths(stage_index)
+    if not meta_path.exists():
+        return JsonResponse({"detail": "No saved raster for this stage"}, status=404)
+    try:
+        return JsonResponse(json.loads(meta_path.read_text(encoding="utf-8")))
+    except Exception as exc:
+        return JsonResponse({"detail": str(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+def phase_raster_tiff(request, stage_index: int):
+    """Stream the saved GeoTIFF for a given stage."""
+    tif_path, _ = _phase_raster_paths(stage_index)
+    if not tif_path.exists():
+        return JsonResponse({"detail": "No saved raster for this stage"}, status=404)
+    try:
+        data = tif_path.read_bytes()
+        response = HttpResponse(data, content_type="image/tiff")
+        response["Content-Disposition"] = f'inline; filename="phase_raster_{stage_index}.tif"'
+        response["Cache-Control"] = "no-store"
+        return response
+    except Exception as exc:
+        return JsonResponse({"detail": str(exc)}, status=500)

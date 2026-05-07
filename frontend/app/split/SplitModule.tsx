@@ -10,7 +10,7 @@ import SplitViewerWindow from "./components/SplitViewerWindow";
 import type { STPWmsLayer } from "./components/STPSuitabilityPanel";
 
 const AdminMap = dynamic(
-  () => import("../(holistic-approach)/holistic/components/AdminMap"),
+  () => import("./components/AdminMap"),
   { ssr: false },
 );
 
@@ -107,7 +107,14 @@ export default function SplitModule() {
   const [masterNoteShape, setMasterNoteShape] = useState<StickyNote["shape"]>("sticky");
   const [viewerMessages, setViewerMessages] = useState<ViewerMessage[]>([]);
   const [aviralCriteria, setAviralCriteria] = useState<string[]>([]);
-  const [activeModule, setActiveModule] = useState<"Aviral Ganga" | "Nirmal Ganga" | "STP Suitability">("Aviral Ganga");
+  const [combinedTiff, setCombinedTiff] = useState<ArrayBuffer | null>(null);
+  const [nirmalCriteria, setNirmalCriteria] = useState<string[]>([]);
+  const [nirmalCombinedTiff, setNirmalCombinedTiff] = useState<ArrayBuffer | null>(null);
+  const [janCriteria, setJanCriteria] = useState<string[]>([]);
+  const [janCombinedTiff, setJanCombinedTiff] = useState<ArrayBuffer | null>(null);
+  const [arthCriteria, setArthCriteria] = useState<string[]>([]);
+  const [arthCombinedTiff, setArthCombinedTiff] = useState<ArrayBuffer | null>(null);
+  const [activeModule, setActiveModule] = useState<"Aviral Ganga" | "Nirmal Ganga" | "Jan Ganga" | "Arth Ganga" | "STP Suitability">("Aviral Ganga");
   const [mainStpLayers,     setMainStpLayers]     = useState<Record<string, STPWmsLayer | null>>({});
   const [mainStpAreaLayers, setMainStpAreaLayers] = useState<Record<string, STPWmsLayer | null>>({});
   const [stpResetKey, setStpResetKey] = useState(0);
@@ -429,8 +436,8 @@ export default function SplitModule() {
           basinGeojson={layerState.basin ? basinGeojson : null}
           selectedZoneGeojson={selectedZoneGeojson}
           analysisResult={null}
-          showRainfallLayer={false}
-          showRechargeLayer={false}
+          showRainfallLayer={(activeModule === "Nirmal Ganga" ? nirmalCriteria : activeModule === "Jan Ganga" ? janCriteria : activeModule === "Arth Ganga" ? arthCriteria : aviralCriteria).includes("Rainfall & runoff")}
+          showRechargeLayer={(activeModule === "Nirmal Ganga" ? nirmalCriteria : activeModule === "Jan Ganga" ? janCriteria : activeModule === "Arth Ganga" ? arthCriteria : aviralCriteria).includes("Groundwater recharge")}
           rainfallYear={null}
           clipApiBase={backendBase}
           interactive={true}
@@ -447,10 +454,11 @@ export default function SplitModule() {
           viewerSide="main"
           stickyMode={masterStickyMode}
           onStickyMapClick={handleMasterMapClick}
-          activeCriteria={aviralCriteria}
+          activeCriteria={activeModule === "Nirmal Ganga" ? nirmalCriteria : activeModule === "Jan Ganga" ? janCriteria : activeModule === "Arth Ganga" ? arthCriteria : aviralCriteria}
           screenNames={screenNames}
           stpWmsLayers={Object.values(mainStpLayers).filter(Boolean) as STPWmsLayer[]}
           stpAreaWmsLayers={Object.values(mainStpAreaLayers).filter(Boolean) as STPWmsLayer[]}
+          aviralTiff={activeModule === "Nirmal Ganga" ? nirmalCombinedTiff : activeModule === "Jan Ganga" ? janCombinedTiff : activeModule === "Arth Ganga" ? arthCombinedTiff : combinedTiff}
         />
       </div>
 
@@ -498,7 +506,7 @@ export default function SplitModule() {
           onDeleteStickyNote={handleDeleteStickyNote}
           messages={viewerMessages}
           onSendMessage={(text) => handleSendMessage(viewer.side, viewer.title, text)}
-          activeCriteria={aviralCriteria}
+          activeCriteria={activeModule === "Nirmal Ganga" ? nirmalCriteria : activeModule === "Jan Ganga" ? janCriteria : activeModule === "Arth Ganga" ? arthCriteria : aviralCriteria}
           clipApiBase={backendBase}
           revealedNotes={revealedNotes}
           onRevealNote={(noteId) => handleRevealNote(noteId, viewer.side)}
@@ -507,6 +515,8 @@ export default function SplitModule() {
           onSTPPresentToMain={(layer) => setMainStpLayers(prev => ({ ...prev, [viewer.side]: layer }))}
           onSTPAreaPresentToMain={(layer) => setMainStpAreaLayers(prev => ({ ...prev, [viewer.side]: layer }))}
           stpResetKey={stpResetKey}
+          combinedTiff={activeModule === "Nirmal Ganga" ? nirmalCombinedTiff : activeModule === "Jan Ganga" ? janCombinedTiff : activeModule === "Arth Ganga" ? arthCombinedTiff : combinedTiff}
+          onCombinedTiffUpdate={activeModule === "Nirmal Ganga" ? setNirmalCombinedTiff : activeModule === "Jan Ganga" ? setJanCombinedTiff : activeModule === "Arth Ganga" ? setArthCombinedTiff : setCombinedTiff}
         />
       ))}
 
@@ -533,10 +543,23 @@ export default function SplitModule() {
         onClearZones={handleClearZones}
         aviralCriteria={aviralCriteria}
         onAviralCriteriaChange={setAviralCriteria}
+        onCombinedTiffChange={setCombinedTiff}
+        nirmalCriteria={nirmalCriteria}
+        onNirmalCriteriaChange={setNirmalCriteria}
+        onNirmalCombinedTiffChange={setNirmalCombinedTiff}
+        janCriteria={janCriteria}
+        onJanCriteriaChange={setJanCriteria}
+        onJanCombinedTiffChange={setJanCombinedTiff}
+        arthCriteria={arthCriteria}
+        onArthCriteriaChange={setArthCriteria}
+        onArthCombinedTiffChange={setArthCombinedTiff}
         activeModule={activeModule}
         onActiveModuleChange={(mod) => {
-          if (mod === "Aviral Ganga") handleResetAllSTP();
+          if (mod !== "STP Suitability") handleResetAllSTP();
           if (mod !== "Aviral Ganga") setAviralCriteria([]);
+          if (mod !== "Nirmal Ganga") setNirmalCriteria([]);
+          if (mod !== "Jan Ganga") setJanCriteria([]);
+          if (mod !== "Arth Ganga") setArthCriteria([]);
           setActiveModule(mod);
         }}
         onResetAllSTP={handleResetAllSTP}

@@ -9,10 +9,14 @@ GEOSERVER_PASSWORD = "geoserver"
 VECTOR_WORKSPACE = "dss_vector"
 RASTER_WORKSPACE = "dss_raster"
 
-# Paths
-ZIP_DIR = Path("media/gwa_data/shp_zip")
+# ================= MULTIPLE ZIP DIRECTORIES =================
+ZIP_DIRS = [
+    Path("media/gwa_data/shp_zip"),
+    Path("media/shape_file/nirmal"),
+    Path("media/shape_file/jan"),
+]
 
-
+# ================= TIFF DIRECTORIES =================
 TIFF_DIRS = [
     Path("media/files/aviral/Rainfall"),
     Path("media/files/aviral/Recharge"),
@@ -24,8 +28,16 @@ TIFF_DIRS = [
 # ================= WORKSPACE =================
 def create_workspace(workspace):
     url = f"{GEOSERVER_URL}/workspaces"
-    headers = {"Content-Type": "text/xml"}
-    data = f"<workspace><name>{workspace}</name></workspace>"
+
+    headers = {
+        "Content-Type": "text/xml"
+    }
+
+    data = f"""
+    <workspace>
+        <name>{workspace}</name>
+    </workspace>
+    """
 
     try:
         response = requests.post(
@@ -38,20 +50,31 @@ def create_workspace(workspace):
         if response.status_code in [201, 409]:
             print(f"[✓] Workspace '{workspace}' ready.")
         else:
-            print(f"[!] Workspace error ({workspace}): {response.text}")
+            print(f"[!] Workspace error ({workspace}):")
+            print(response.text)
+
     except Exception as e:
         print(f"[!] Workspace exception: {e}")
 
 
-# ================= SHAPEFILE =================
+# ================= SHAPEFILE ZIP UPLOAD =================
 def upload_shapefile(zip_path):
+
     store_name = zip_path.stem
 
-    url = f"{GEOSERVER_URL}/workspaces/{VECTOR_WORKSPACE}/datastores/{store_name}/file.shp"
-    headers = {"Content-type": "application/zip"}
+    url = (
+        f"{GEOSERVER_URL}/workspaces/"
+        f"{VECTOR_WORKSPACE}/datastores/"
+        f"{store_name}/file.shp"
+    )
+
+    headers = {
+        "Content-type": "application/zip"
+    }
 
     try:
-        with open(zip_path, 'rb') as f:
+        with open(zip_path, "rb") as f:
+
             response = requests.put(
                 url,
                 auth=(GEOSERVER_USER, GEOSERVER_PASSWORD),
@@ -61,29 +84,42 @@ def upload_shapefile(zip_path):
 
         if response.status_code in [201, 202]:
             print(f"[✓] Shapefile uploaded: {store_name}")
+
         else:
-            print(f"[!] Failed shapefile {store_name}: {response.text}")
+            print(f"[!] Failed shapefile: {store_name}")
+            print(f"Status: {response.status_code}")
+            print(response.text)
 
     except Exception as e:
         print(f"[!] Error uploading shapefile {store_name}: {e}")
 
 
-# ================= TIFF =================
+# ================= TIFF UPLOAD =================
 def upload_tiff(tiff_path):
+
     folder_name = tiff_path.parent.name.lower()
     file_name = tiff_path.stem
 
-    # 🔥 Maintain OLD naming for Rainfall & Recharge
+    # Keep old naming for rainfall & recharge
     if folder_name in ["rainfall", "recharge"]:
-        store_name = file_name   # rainfall_2015, recharge_gw
-    else:
-        store_name = f"{folder_name}_{file_name}"  # slope_Slope_aviral
+        store_name = file_name
 
-    url = f"{GEOSERVER_URL}/workspaces/{RASTER_WORKSPACE}/coveragestores/{store_name}/file.geotiff"
-    headers = {"Content-type": "image/tiff"}
+    else:
+        store_name = f"{folder_name}_{file_name}"
+
+    url = (
+        f"{GEOSERVER_URL}/workspaces/"
+        f"{RASTER_WORKSPACE}/coveragestores/"
+        f"{store_name}/file.geotiff"
+    )
+
+    headers = {
+        "Content-type": "image/tiff"
+    }
 
     try:
-        with open(tiff_path, 'rb') as f:
+        with open(tiff_path, "rb") as f:
+
             response = requests.put(
                 url,
                 auth=(GEOSERVER_USER, GEOSERVER_PASSWORD),
@@ -93,8 +129,11 @@ def upload_tiff(tiff_path):
 
         if response.status_code in [201, 202]:
             print(f"[✓] TIFF uploaded: {store_name}")
+
         else:
-            print(f"[!] Failed TIFF {store_name}: {response.status_code} - {response.text}")
+            print(f"[!] Failed TIFF: {store_name}")
+            print(f"Status: {response.status_code}")
+            print(response.text)
 
     except Exception as e:
         print(f"[!] Error uploading TIFF {store_name}: {e}")
@@ -103,30 +142,47 @@ def upload_tiff(tiff_path):
 # ================= MAIN =================
 if __name__ == "__main__":
 
-    print("\n========= STARTING UPLOAD =========")
+    print("\n========= STARTING GEOSERVER UPLOAD =========")
 
-    # -------- VECTOR --------
-    if ZIP_DIR.exists():
-        print("\n=== Uploading Shapefiles ===")
-        create_workspace(VECTOR_WORKSPACE)
+    # =====================================================
+    # VECTOR DATA (MULTIPLE ZIP DIRECTORIES)
+    # =====================================================
 
-        zip_files = list(ZIP_DIR.glob("*.zip"))
+    print("\n=== Uploading Shapefiles ===")
 
-        if not zip_files:
-            print("[!] No shapefiles found.")
-        else:
+    create_workspace(VECTOR_WORKSPACE)
+
+    for zip_dir in ZIP_DIRS:
+
+        if zip_dir.exists():
+
+            print(f"\n--- Processing ZIP Folder: {zip_dir} ---")
+
+            zip_files = list(zip_dir.glob("*.zip"))
+
+            if not zip_files:
+                print(f"[!] No ZIP files found in {zip_dir}")
+                continue
+
             for zip_file in zip_files:
                 upload_shapefile(zip_file)
-    else:
-        print(f"[!] Shapefile directory not found: {ZIP_DIR}")
 
-    # -------- RASTER --------
+        else:
+            print(f"[!] ZIP directory not found: {zip_dir}")
+
+    # =====================================================
+    # RASTER DATA (MULTIPLE TIFF DIRECTORIES)
+    # =====================================================
+
     print("\n=== Uploading TIFF Files ===")
+
     create_workspace(RASTER_WORKSPACE)
 
     for tiff_dir in TIFF_DIRS:
+
         if tiff_dir.exists():
-            print(f"\n--- Processing folder: {tiff_dir} ---")
+
+            print(f"\n--- Processing TIFF Folder: {tiff_dir} ---")
 
             tif_files = list(tiff_dir.glob("*.tif"))
 
@@ -136,6 +192,7 @@ if __name__ == "__main__":
 
             for tif in tif_files:
                 upload_tiff(tif)
+
         else:
             print(f"[!] TIFF directory not found: {tiff_dir}")
 
