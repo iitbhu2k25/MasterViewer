@@ -22,7 +22,14 @@ TIFF_DIRS = [
     Path("media/files/aviral/Recharge"),
     Path("media/files/aviral/slope"),
     Path("media/files/aviral/flow_direction"),
+    Path("media/files/aviral/river_flow"),
+    Path("media/files/aviral/drain_flow"),
+    Path("media/files/aviral/channel"),
     Path("media/files/nirmal"),
+    Path("media/files/arth"),
+    Path("media/files/gyan"),
+    Path("media/files/jeevant"),
+    Path("media/files/jan"),
 ]
 
 # ================= WORKSPACE =================

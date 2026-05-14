@@ -6,7 +6,10 @@ import { GeoJSON, MapContainer, TileLayer, WMSTileLayer, useMap, useMapEvents } 
 import type { STPWmsLayer } from "./STPSuitabilityPanel";
 import type { BasemapType, FeatureCollection, StickyNote } from "../../shared/types";
 import { BASEMAP_TILES } from "../../shared/types";
-import DrainWFSLayer from "../../shared/map-layers/DrainWFSLayer";
+import { RiverFlowWMSLayer, DrainFlowWMSLayer, ChannelGeometryWMSLayer } from "../../shared/map-layers/AviralFlowWMSLayers";
+import { ArthAgricultureLayer, ArthIrrigationLayer, ArthTourismLayer, ArthGhatsLayer, ArthEconomicLayer } from "../../shared/map-layers/ArthGangaRasterLayers";
+import { GyanBaselineLayer, GyanGisDataLayer, GyanSwatLayer, GyanHydrogeologyLayer, GyanSensorLayer } from "../../shared/map-layers/GyanGangaRasterLayers";
+import { JeevantWetlandsLayer, JeevantRiparianLayer, JeevantBiodiversityLayer, JeevantFloodplainLayer } from "../../shared/map-layers/JeevantGangaRasterLayers";
 import DemSlopeRasterLayer from "../../shared/map-layers/DemSlopeRasterLayer";
 import FlowDirectionRasterLayer from "../../shared/map-layers/FlowDirectionRasterLayer";
 import NirmalGwqLayer from "../../shared/map-layers/NirmalGwqLayer";
@@ -32,16 +35,22 @@ function AviralRasterLayer({ tiff }: { tiff: ArrayBuffer | null }) {
       const layer = new GeoRasterLayer({
         georaster,
         opacity: 0.85,
-        resolution: 256,
+        resolution: 512,
         pixelValuesToColorFn: (vals: number[]) => {
           const v = vals?.[0];
           if (v === undefined || v === null || !Number.isFinite(v)) return null;
-          if (nodata !== undefined && nodata !== null && Math.abs(v - nodata) < 1e-6) return null;
+          if (nodata !== undefined && nodata !== null && v <= nodata + 1) return null;
           if (v < 0) return null;
           const t = Math.max(0, Math.min(1, v));
-          const r = Math.round(255 * t);
-          const g = Math.round(255 * (1 - t));
-          return `rgba(${r},${g},60,0.82)`;
+          let r: number, g: number;
+          if (t < 0.5) {
+            r = Math.round(255 * (t * 2));
+            g = 200;
+          } else {
+            r = 220;
+            g = Math.round(200 * (1 - (t - 0.5) * 2));
+          }
+          return `rgba(${r},${g},20,0.88)`;
         },
       });
       if (!cancelled) { layer.addTo(map); layerRef.current = layer; }
@@ -751,10 +760,23 @@ export default function SplitMapViewer({
       <ViewerRainfallLayer enabled={activeCriteria.includes("Rainfall & runoff")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
       <ViewerRechargeLayer enabled={activeCriteria.includes("Groundwater recharge")} />
 
-      {/* Drain flow WFS layers — real features filtered to selected zones */}
-      {(activeCriteria.includes("Tributary & drain flow") || activeCriteria.includes("Drains & discharge points")) && (
-        <DrainWFSLayer areaGeojson={areaGeojson} selectedZones={selectedZones} />
-      )}
+      <DrainFlowWMSLayer enabled={activeCriteria.includes("Tributary & drain flow") || activeCriteria.includes("Drains & discharge points")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+      <RiverFlowWMSLayer enabled={activeCriteria.includes("River flow")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+      <ChannelGeometryWMSLayer enabled={activeCriteria.includes("Channel geometry (width, depth)")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+      <ArthAgricultureLayer enabled={activeCriteria.includes("Agriculture (crop area, water demand)")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+      <ArthIrrigationLayer enabled={activeCriteria.includes("Irrigation dependency")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+      <ArthTourismLayer enabled={activeCriteria.includes("Tourism & cultural nodes")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+      <ArthGhatsLayer enabled={activeCriteria.includes("Ghats & heritage sites")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+      <ArthEconomicLayer enabled={activeCriteria.includes("Economic activity zones")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+      <GyanBaselineLayer enabled={activeCriteria.includes("All baseline datasets")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+      <GyanGisDataLayer enabled={activeCriteria.includes("Remote sensing + GIS maps")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+      <GyanSwatLayer enabled={activeCriteria.includes("SWAT model outputs")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+      <GyanHydrogeologyLayer enabled={activeCriteria.includes("Hydrogeology (aquifer, MAR, paleo-channels)")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+      <GyanSensorLayer enabled={activeCriteria.includes("Monitoring stations & sensors")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+      <JeevantWetlandsLayer enabled={activeCriteria.includes("Wetlands, ponds, lakes")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+      <JeevantRiparianLayer enabled={activeCriteria.includes("Riparian vegetation")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+      <JeevantBiodiversityLayer enabled={activeCriteria.includes("Biodiversity (fish, birds, invasive species)")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+      <JeevantFloodplainLayer enabled={activeCriteria.includes("Floodplain & habitat data")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
 
       {/* Slope/DEM raster with zonal clipping and high-variance coloring */}
       {activeCriteria.includes("DEM, slope maps") && (

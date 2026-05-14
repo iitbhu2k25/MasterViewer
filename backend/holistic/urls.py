@@ -1,6 +1,9 @@
 from django.urls import path
 
 from .views import (
+    session_save,
+    session_list,
+    session_delete,
     analysis_aviral,
     analysis_phase_raster,
     save_phase_raster,
@@ -22,8 +25,13 @@ from .views import (
     analysis_nirmal_stp,
     analysis_rainfall,
     analysis_rainfall_clip,
+    analysis_channel_geometry,
     analysis_river_flow,
     analysis_tributary_drain,
+    analysis_aviral_geoserver_clip,
+    analysis_arth_ganga,
+    analysis_gyan_ganga,
+    analysis_jeevant_ganga,
     analysis_zone_raster,
     analysis_zone_raster_clip,
     location_district,
@@ -37,6 +45,11 @@ urlpatterns = [
     path("analysis/zone-raster-clip", analysis_zone_raster_clip, name="holistic-analysis-zone-raster-clip"),
     path("analysis/rainfall", analysis_rainfall, name="holistic-analysis-rainfall"),
     path("analysis/groundwater", analysis_groundwater, name="holistic-analysis-groundwater"),
+    path("analysis/channel-geometry", analysis_channel_geometry, name="holistic-analysis-channel-geometry"),
+    path("analysis/aviral-geoserver-clip", analysis_aviral_geoserver_clip, name="holistic-analysis-aviral-geoserver-clip"),
+    path("analysis/arth-ganga", analysis_arth_ganga, name="holistic-analysis-arth-ganga"),
+    path("analysis/gyan-ganga", analysis_gyan_ganga, name="holistic-analysis-gyan-ganga"),
+    path("analysis/jeevant-ganga", analysis_jeevant_ganga, name="holistic-analysis-jeevant-ganga"),
     path("analysis/tributary-drain", analysis_tributary_drain, name="holistic-analysis-tributary-drain"),
     path("analysis/river-flow", analysis_river_flow, name="holistic-analysis-river-flow"),
     path("analysis/dem-slope", analysis_dem_slope, name="holistic-analysis-dem-slope"),
@@ -58,4 +71,7 @@ urlpatterns = [
     path("analysis/save-phase-raster", save_phase_raster, name="holistic-save-phase-raster"),
     path("analysis/phase-raster-meta/<int:stage_index>", phase_raster_meta, name="holistic-phase-raster-meta"),
     path("analysis/phase-raster-tiff/<int:stage_index>", phase_raster_tiff, name="holistic-phase-raster-tiff"),
+    path("sessions/save", session_save, name="session-save"),
+    path("sessions/list", session_list, name="session-list"),
+    path("sessions/delete/<str:session_id>", session_delete, name="session-delete"),
 ]

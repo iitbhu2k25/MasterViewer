@@ -935,74 +935,17 @@ def analysis_tributary_drain(request):
             return zone_err
         zone_geometries = resolved["zone_geometries"]
 
-        zone_shapes: dict[str, object] = {}
-        for zone_name, geoms in zone_geometries.items():
-            shp_list = [shape(g) for g in geoms if g]
-            if shp_list:
-                zone_shapes[zone_name] = unary_union(shp_list)
+        bbox = _bounds_from_zone_geometries(zone_geometries)
+        tiff_bytes = _fetch_coverage_tiff("dss_raster:drain_flow_1", bbox)
 
-        layers = [
-            ("stp", "STP"),
-            ("tapped", "Tapped Drain"),
-            ("partial_tapped_drain", "Partial Tapped Drain"),
-            ("untapped_drain", "Untapped Drain"),
-        ]
+        with MemoryFile(tiff_bytes) as mf:
+            with mf.open() as src:
+                by_zone = _zonal_stats_for_raster_dataset(src, zone_geometries)
 
-        layer_rows = []
-        total_intersections = 0
-        for layer_name, layer_label in layers:
-            try:
-                layer_geojson = _fetch_vector_layer_geojson(layer_name, workspace="dss_vector")
-                features = layer_geojson.get("features", []) or []
-                by_zone = {zone_name: 0 for zone_name in zone_shapes.keys()}
-                intersecting_feature_count = 0
-
-                for ft in features:
-                    geom = ft.get("geometry")
-                    if not geom:
-                        continue
-                    try:
-                        ft_shape = shape(geom)
-                    except Exception:
-                        continue
-                    hit_any = False
-                    for zone_name, zone_shape in zone_shapes.items():
-                        if ft_shape.intersects(zone_shape):
-                            by_zone[zone_name] += 1
-                            hit_any = True
-                    if hit_any:
-                        intersecting_feature_count += 1
-
-                total_intersections += intersecting_feature_count
-                layer_rows.append(
-                    {
-                        "layer": layer_name,
-                        "label": layer_label,
-                        "total_features": len(features),
-                        "intersecting_features": intersecting_feature_count,
-                        "by_zone": by_zone,
-                    }
-                )
-            except requests.RequestException as exc:
-                layer_rows.append(
-                    {
-                        "layer": layer_name,
-                        "label": layer_label,
-                        "error": f"GeoServer fetch failed: {exc}",
-                    }
-                )
-
-        result = {
-            "selected_zones": list(zone_shapes.keys()),
-            "tributary_drain": {
-                "layers": layer_rows,
-                "summary": {
-                    "selected_zone_count": len(zone_shapes),
-                    "total_intersecting_features": total_intersections,
-                },
-            },
-        }
-        return JsonResponse(result, safe=False)
+        return JsonResponse({
+            "selected_zones": list(zone_geometries.keys()),
+            "drain_flow": {"by_zone": by_zone},
+        }, safe=False)
     except requests.RequestException as exc:
         return JsonResponse({"detail": f"GeoServer fetch failed: {exc}"}, status=502)
     except Exception as exc:
@@ -1023,84 +966,323 @@ def analysis_river_flow(request):
             return zone_err
         zone_geometries = resolved["zone_geometries"]
 
-        zone_shapes: dict[str, object] = {}
-        for zone_name, geoms in zone_geometries.items():
-            shp_list = [shape(g) for g in geoms if g]
-            if shp_list:
-                zone_shapes[zone_name] = unary_union(shp_list)
+        bbox = _bounds_from_zone_geometries(zone_geometries)
+        tiff_bytes = _fetch_coverage_tiff("dss_raster:river_flow_1", bbox)
 
-        layer_geojson = _fetch_vector_layer_geojson("river_flow", workspace="dss_vector")
-        features = layer_geojson.get("features", []) or []
-
-        # Combined zone union for clipping
-        all_zone_shapes = list(zone_shapes.values())
-        combined_zone = unary_union(all_zone_shapes) if all_zone_shapes else None
-
-        matched_records = []
-        matched_subbasins = set()
-        geojson_features = []
-
-        for ft in features:
-            geom = ft.get("geometry")
-            props = ft.get("properties", {})
-            if not geom:
-                continue
-            try:
-                ft_shape = shape(geom)
-            except Exception:
-                continue
-            for zone_name, zone_shape in zone_shapes.items():
-                if ft_shape.intersects(zone_shape):
-                    subbasin_id = props.get("Subbasin")
-                    matched_records.append({
-                        "Subbasin": subbasin_id,
-                        "SUB": props.get("SUB"),
-                        "year": props.get("year"),
-                        "month": props.get("month"),
-                        "area_km2": props.get("area_km2"),
-                        "flow_in_cm": props.get("flow_in_cm"),
-                        "flow_out_c": props.get("flow_out_c"),
-                        "yyyyddd": props.get("yyyyddd"),
-                        "zone": zone_name,
-                    })
-                    matched_subbasins.add(subbasin_id)
-                    # Clip geometry to zone boundary so only inside-zone area renders
-                    try:
-                        clipped_shape = ft_shape.intersection(combined_zone) if combined_zone else ft_shape
-                        # Extract only polygon parts — drop points/lines from clipping artifacts
-                        from shapely.geometry import Polygon, MultiPolygon, GeometryCollection
-                        if isinstance(clipped_shape, GeometryCollection):
-                            polys = [g for g in clipped_shape.geoms if isinstance(g, (Polygon, MultiPolygon))]
-                            from shapely.ops import unary_union as _uu
-                            clipped_shape = _uu(polys) if polys else clipped_shape
-                        if clipped_shape.is_empty or not isinstance(clipped_shape, (Polygon, MultiPolygon)):
-                            clipped_geom = None
-                        else:
-                            clipped_geom = mapping(clipped_shape)
-                    except Exception:
-                        clipped_geom = geom
-                    if clipped_geom:
-                        geojson_features.append({
-                            "type": "Feature",
-                            "geometry": clipped_geom,
-                            "properties": {
-                                "Subbasin": subbasin_id,
-                                "SUB": props.get("SUB"),
-                                "area_km2": props.get("area_km2"),
-                            },
-                        })
-                    break
+        with MemoryFile(tiff_bytes) as mf:
+            with mf.open() as src:
+                by_zone = _zonal_stats_for_raster_dataset(src, zone_geometries)
 
         return JsonResponse({
-            "records": matched_records,
-            "subbasin_ids": sorted(matched_subbasins),
-            "geojson": {"type": "FeatureCollection", "features": geojson_features},
+            "selected_zones": list(zone_geometries.keys()),
+            "river_flow": {"by_zone": by_zone},
         }, safe=False)
 
     except requests.RequestException as exc:
         return JsonResponse({"detail": f"GeoServer fetch failed: {exc}"}, status=502)
     except Exception as exc:
         return JsonResponse({"detail": f"River flow analysis failed: {exc}"}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def analysis_channel_geometry(request):
+    parsed, err = _parse_payload_and_selected_zones(request)
+    if err:
+        return err
+    selected_zones = parsed["selected_zones"]
+
+    try:
+        resolved, zone_err = _resolve_zone_geometries(selected_zones)
+        if zone_err:
+            return zone_err
+        zone_geometries = resolved["zone_geometries"]
+
+        bbox = _bounds_from_zone_geometries(zone_geometries)
+        tiff_bytes = _fetch_coverage_tiff("dss_raster:channel_1", bbox)
+
+        with MemoryFile(tiff_bytes) as mf:
+            with mf.open() as src:
+                by_zone = _zonal_stats_for_raster_dataset(src, zone_geometries)
+
+        return JsonResponse({
+            "selected_zones": list(zone_geometries.keys()),
+            "channel_geometry": {"by_zone": by_zone},
+        }, safe=False)
+    except requests.RequestException as exc:
+        return JsonResponse({"detail": f"GeoServer fetch failed: {exc}"}, status=502)
+    except Exception as exc:
+        return JsonResponse({"detail": f"Channel geometry analysis failed: {exc}"}, status=500)
+
+
+_ARTH_COVERAGE_MAP: dict[str, str] = {
+    "Agriculture (crop area, water demand)": "dss_raster:arth_agriculture",
+    "Irrigation dependency":                 "dss_raster:arth_irrigation",
+    "Tourism & cultural nodes":              "dss_raster:arth_tourism",
+    "Ghats & heritage sites":               "dss_raster:arth_heritage",
+    "Economic activity zones":               "dss_raster:arth_economic",
+}
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def analysis_arth_ganga(request):
+    """Zonal stats for one or more Arth Ganga raster criteria."""
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON body"}, status=400)
+
+    selected_zones = payload.get("selected_zones", [])
+    if isinstance(selected_zones, str):
+        try:
+            parsed_sz = json.loads(selected_zones)
+            if isinstance(parsed_sz, list):
+                selected_zones = parsed_sz
+        except json.JSONDecodeError:
+            selected_zones = [selected_zones]
+
+    criteria = payload.get("criteria", list(_ARTH_COVERAGE_MAP.keys()))
+    if isinstance(criteria, str):
+        criteria = [criteria]
+
+    if not isinstance(selected_zones, list) or not selected_zones:
+        return JsonResponse({"detail": "selected_zones is required"}, status=400)
+
+    try:
+        resolved, zone_err = _resolve_zone_geometries(selected_zones)
+        if zone_err:
+            return zone_err
+        zone_geometries = resolved["zone_geometries"]
+        bbox = _bounds_from_zone_geometries(zone_geometries)
+
+        results: dict[str, dict] = {}
+        for criterion in criteria:
+            coverage = _ARTH_COVERAGE_MAP.get(criterion)
+            if not coverage:
+                results[criterion] = {"error": f"Unknown criterion: {criterion}"}
+                continue
+            try:
+                tiff_bytes = _fetch_coverage_tiff(coverage, bbox)
+                with MemoryFile(tiff_bytes) as mf:
+                    with mf.open() as src:
+                        by_zone = _zonal_stats_for_raster_dataset(src, zone_geometries)
+                results[criterion] = {"by_zone": by_zone, "coverage": coverage}
+            except Exception as exc:
+                results[criterion] = {"error": str(exc)}
+
+        return JsonResponse({
+            "selected_zones": list(zone_geometries.keys()),
+            "arth_ganga": results,
+        }, safe=False)
+    except requests.RequestException as exc:
+        return JsonResponse({"detail": f"GeoServer fetch failed: {exc}"}, status=502)
+    except Exception as exc:
+        return JsonResponse({"detail": f"Arth Ganga analysis failed: {exc}"}, status=500)
+
+
+_JEEVANT_COVERAGE_MAP: dict[str, str] = {
+    "Wetlands, ponds, lakes":                    "dss_raster:jeevant_wetlands",
+    "Riparian vegetation":                       "dss_raster:jeevant_riparian",
+    "Biodiversity (fish, birds, invasive species)": "dss_raster:jeevant_biodiversity",
+    "Floodplain & habitat data":                 "dss_raster:jeevant_floodplain",
+}
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def analysis_jeevant_ganga(request):
+    """Zonal stats for one or more Jeevant Ganga raster criteria."""
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON body"}, status=400)
+
+    selected_zones = payload.get("selected_zones", [])
+    if isinstance(selected_zones, str):
+        try:
+            parsed_sz = json.loads(selected_zones)
+            if isinstance(parsed_sz, list):
+                selected_zones = parsed_sz
+        except json.JSONDecodeError:
+            selected_zones = [selected_zones]
+
+    criteria = payload.get("criteria", list(_JEEVANT_COVERAGE_MAP.keys()))
+    if isinstance(criteria, str):
+        criteria = [criteria]
+
+    if not isinstance(selected_zones, list) or not selected_zones:
+        return JsonResponse({"detail": "selected_zones is required"}, status=400)
+
+    try:
+        resolved, zone_err = _resolve_zone_geometries(selected_zones)
+        if zone_err:
+            return zone_err
+        zone_geometries = resolved["zone_geometries"]
+        bbox = _bounds_from_zone_geometries(zone_geometries)
+
+        results: dict[str, dict] = {}
+        for criterion in criteria:
+            coverage = _JEEVANT_COVERAGE_MAP.get(criterion)
+            if not coverage:
+                results[criterion] = {"error": f"Unknown criterion: {criterion}"}
+                continue
+            try:
+                tiff_bytes = _fetch_coverage_tiff(coverage, bbox)
+                with MemoryFile(tiff_bytes) as mf:
+                    with mf.open() as src:
+                        by_zone = _zonal_stats_for_raster_dataset(src, zone_geometries)
+                results[criterion] = {"by_zone": by_zone, "coverage": coverage}
+            except Exception as exc:
+                results[criterion] = {"error": str(exc)}
+
+        return JsonResponse({
+            "selected_zones": list(zone_geometries.keys()),
+            "jeevant_ganga": results,
+        }, safe=False)
+    except requests.RequestException as exc:
+        return JsonResponse({"detail": f"GeoServer fetch failed: {exc}"}, status=502)
+    except Exception as exc:
+        return JsonResponse({"detail": f"Jeevant Ganga analysis failed: {exc}"}, status=500)
+
+
+_GYAN_COVERAGE_MAP: dict[str, str] = {
+    "All baseline datasets":                       "dss_raster:gyan_baseline",
+    "Remote sensing + GIS maps":                   "dss_raster:gyan_gisdata",
+    "SWAT model outputs":                          "dss_raster:gyan_swat",
+    "Hydrogeology (aquifer, MAR, paleo-channels)": "dss_raster:gyan_hydrogeology",
+    "Monitoring stations & sensors":               "dss_raster:gyan_sensor",
+}
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def analysis_gyan_ganga(request):
+    """Zonal stats for one or more Gyan Ganga raster criteria."""
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON body"}, status=400)
+
+    selected_zones = payload.get("selected_zones", [])
+    if isinstance(selected_zones, str):
+        try:
+            parsed_sz = json.loads(selected_zones)
+            if isinstance(parsed_sz, list):
+                selected_zones = parsed_sz
+        except json.JSONDecodeError:
+            selected_zones = [selected_zones]
+
+    criteria = payload.get("criteria", list(_GYAN_COVERAGE_MAP.keys()))
+    if isinstance(criteria, str):
+        criteria = [criteria]
+
+    if not isinstance(selected_zones, list) or not selected_zones:
+        return JsonResponse({"detail": "selected_zones is required"}, status=400)
+
+    try:
+        resolved, zone_err = _resolve_zone_geometries(selected_zones)
+        if zone_err:
+            return zone_err
+        zone_geometries = resolved["zone_geometries"]
+        bbox = _bounds_from_zone_geometries(zone_geometries)
+
+        results: dict[str, dict] = {}
+        for criterion in criteria:
+            coverage = _GYAN_COVERAGE_MAP.get(criterion)
+            if not coverage:
+                results[criterion] = {"error": f"Unknown criterion: {criterion}"}
+                continue
+            try:
+                tiff_bytes = _fetch_coverage_tiff(coverage, bbox)
+                with MemoryFile(tiff_bytes) as mf:
+                    with mf.open() as src:
+                        by_zone = _zonal_stats_for_raster_dataset(src, zone_geometries)
+                results[criterion] = {"by_zone": by_zone, "coverage": coverage}
+            except Exception as exc:
+                results[criterion] = {"error": str(exc)}
+
+        return JsonResponse({
+            "selected_zones": list(zone_geometries.keys()),
+            "gyan_ganga": results,
+        }, safe=False)
+    except requests.RequestException as exc:
+        return JsonResponse({"detail": f"GeoServer fetch failed: {exc}"}, status=502)
+    except Exception as exc:
+        return JsonResponse({"detail": f"Gyan Ganga analysis failed: {exc}"}, status=500)
+
+
+# Accepted layer names → GeoServer coverage name
+_AVIRAL_GEOSERVER_LAYERS: dict[str, str] = {
+    "river_flow": "dss_raster:river_flow_1",
+    "drain_flow": "dss_raster:drain_flow_1",
+    "channel": "dss_raster:channel_1",
+    # Arth Ganga
+    "arth_agriculture": "dss_raster:arth_agriculture",
+    "arth_irrigation":  "dss_raster:arth_irrigation",
+    "arth_tourism":     "dss_raster:arth_tourism",
+    "arth_heritage":    "dss_raster:arth_heritage",
+    "arth_economic":    "dss_raster:arth_economic",
+    # Gyan Ganga
+    "gyan_baseline":    "dss_raster:gyan_baseline",
+    "gyan_gisdata":     "dss_raster:gyan_gisdata",
+    "gyan_swat":        "dss_raster:gyan_swat",
+    "gyan_hydrogeology":"dss_raster:gyan_hydrogeology",
+    "gyan_sensor":      "dss_raster:gyan_sensor",
+    # Jeevant Ganga
+    "jeevant_wetlands":     "dss_raster:jeevant_wetlands",
+    "jeevant_riparian":     "dss_raster:jeevant_riparian",
+    "jeevant_biodiversity": "dss_raster:jeevant_biodiversity",
+    "jeevant_floodplain":   "dss_raster:jeevant_floodplain",
+}
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def analysis_aviral_geoserver_clip(request):
+    """Return a zone-clipped GeoTIFF for river_flow / drain_flow / channel rasters."""
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON body"}, status=400)
+
+    layer_name = str(payload.get("layer_name", "")).strip().lower()
+    selected_zones = payload.get("selected_zones", [])
+
+    if layer_name not in _AVIRAL_GEOSERVER_LAYERS:
+        return JsonResponse(
+            {"detail": f"Unknown layer_name '{layer_name}'. Choose from: {list(_AVIRAL_GEOSERVER_LAYERS)}"},
+            status=400,
+        )
+
+    if isinstance(selected_zones, str):
+        try:
+            parsed = json.loads(selected_zones)
+            if isinstance(parsed, list):
+                selected_zones = parsed
+        except json.JSONDecodeError:
+            selected_zones = [selected_zones]
+
+    if not isinstance(selected_zones, list) or not selected_zones:
+        return JsonResponse({"detail": "selected_zones is required"}, status=400)
+
+    try:
+        resolved, zone_err = _resolve_zone_geometries(selected_zones)
+        if zone_err:
+            return zone_err
+        zone_geometries = resolved["zone_geometries"]
+
+        coverage_name = _AVIRAL_GEOSERVER_LAYERS[layer_name]
+        clipped_tiff = _clip_coverage_tiff_to_geometries(coverage_name, zone_geometries)
+
+        response = HttpResponse(clipped_tiff, content_type="image/tiff")
+        response["Content-Disposition"] = f'inline; filename="{layer_name}_clipped.tif"'
+        response["X-Coverage"] = coverage_name
+        return response
+    except requests.RequestException as exc:
+        return JsonResponse({"detail": f"GeoServer fetch failed: {exc}"}, status=502)
+    except Exception as exc:
+        return JsonResponse({"detail": f"Aviral geoserver clip failed: {exc}"}, status=500)
 
 
 @csrf_exempt
@@ -2068,6 +2250,46 @@ def _build_aviral_raster_map() -> dict[str, Path]:
     return _build_phase_raster_map(0)
 
 
+def _build_phase_geoserver_map(stage_index: int) -> dict[str, str]:
+    """Return criterion → GeoServer coverage name for rasters that live on GeoServer (not local files)."""
+    maps = [
+        # Stage 0 — Aviral Ganga
+        {
+            "River flow (monthly)":              "dss_raster:river_flow_1",
+            "Tributary & drain flow":             "dss_raster:drain_flow_1",
+            "Channel geometry (width, depth)":    "dss_raster:channel_1",
+        },
+        # Stage 1 — Nirmal Ganga  (local files handle these; nothing extra on GeoServer)
+        {},
+        # Stage 2 — Jan Ganga
+        {},
+        # Stage 3 — Arth Ganga
+        {
+            "Agriculture (crop area, water demand)": "dss_raster:arth_agriculture",
+            "Irrigation dependency":                 "dss_raster:arth_irrigation",
+            "Tourism & cultural nodes":              "dss_raster:arth_tourism",
+            "Ghats & heritage sites":               "dss_raster:arth_heritage",
+            "Economic activity zones":               "dss_raster:arth_economic",
+        },
+        # Stage 4 — Gyan Ganga
+        {
+            "All baseline datasets":                       "dss_raster:gyan_baseline",
+            "Remote sensing + GIS maps":                   "dss_raster:gyan_gisdata",
+            "SWAT model outputs":                          "dss_raster:gyan_swat",
+            "Hydrogeology (aquifer, MAR, paleo-channels)": "dss_raster:gyan_hydrogeology",
+            "Monitoring stations & sensors":               "dss_raster:gyan_sensor",
+        },
+        # Stage 5 — Jeevant Ganga
+        {
+            "Wetlands, ponds, lakes":                       "dss_raster:jeevant_wetlands",
+            "Riparian vegetation":                          "dss_raster:jeevant_riparian",
+            "Biodiversity (fish, birds, invasive species)": "dss_raster:jeevant_biodiversity",
+            "Floodplain & habitat data":                    "dss_raster:jeevant_floodplain",
+        },
+    ]
+    return maps[stage_index] if 0 <= stage_index < len(maps) else {}
+
+
 def _aviral_normalize_to_01(arr: np.ndarray, nodata) -> np.ndarray:
     """Mask nodata/negatives, then min-max normalise to 0–1 as float32."""
     out = arr.astype(np.float32)
@@ -2293,6 +2515,7 @@ def analysis_phase_raster(request):
         return JsonResponse({"detail": "criteria_weights is required"}, status=400)
 
     raster_map = _build_phase_raster_map(stage_index)
+    gs_map = _build_phase_geoserver_map(stage_index)
 
     matched: list[tuple[str, Path, float]] = []
     for criterion, influence in criteria_weights.items():
@@ -2300,14 +2523,28 @@ def analysis_phase_raster(request):
         if path and path.exists():
             matched.append((criterion, path, float(influence)))
 
-    if not matched:
-        available = [c for c, p in raster_map.items() if p.exists()]
+    # Criteria available in either local files or GeoServer
+    available_local = [c for c, p in raster_map.items() if p.exists()]
+    available_gs = list(gs_map.keys())
+    if not matched and not any(c in gs_map for c in criteria_weights):
         return JsonResponse({
-            "detail": f"No raster data available for selected criteria. Available: {available}."
+            "detail": f"No raster data available for selected criteria. Available: {available_local + available_gs}."
         }, status=422)
 
     total_inf = sum(w for _, _, w in matched)
+    # Add weights for GeoServer criteria (resolved later)
+    gs_matched: list[tuple[str, str, float]] = []
+    for criterion, influence in criteria_weights.items():
+        coverage = gs_map.get(criterion)
+        if coverage:
+            gs_matched.append((criterion, coverage, float(influence)))
+            total_inf += float(influence)
+
+    if total_inf == 0:
+        return JsonResponse({"detail": "No raster data available for selected criteria."}, status=422)
+
     matched = [(c, p, w / total_inf) for c, p, w in matched]
+    gs_matched = [(c, cov, w / total_inf) for c, cov, w in gs_matched]
 
     try:
         resolved, zone_err = _resolve_zone_geometries(selected_zones)
@@ -2319,12 +2556,37 @@ def analysis_phase_raster(request):
 
         wgs84 = RioCRS.from_epsg(4326)
 
+        # Fetch GeoServer rasters into memory files and add to matched list
+        if gs_matched:
+            bbox = _bounds_from_zone_geometries(zone_geometries)
+            gs_memfiles: list[MemoryFile] = []
+            gs_paths_for_bounds: list[tuple[MemoryFile, float]] = []
+            for _, coverage, weight in gs_matched:
+                try:
+                    tiff_bytes = _fetch_coverage_tiff(coverage, bbox)
+                    mf = MemoryFile(tiff_bytes)
+                    gs_memfiles.append(mf)
+                    gs_paths_for_bounds.append((mf, weight))
+                except Exception:
+                    pass  # skip unavailable GeoServer layers silently
+        else:
+            gs_memfiles = []
+            gs_paths_for_bounds = []
+
         all_bounds_wgs84 = []
         for _, path, _ in matched:
             with rasterio.open(path) as src:
                 from rasterio.warp import transform_bounds
                 b = transform_bounds(src.crs or RioCRS.from_epsg(32644), wgs84, *src.bounds)
                 all_bounds_wgs84.append(b)
+        for mf, _ in gs_paths_for_bounds:
+            with mf.open() as src:
+                from rasterio.warp import transform_bounds
+                b = transform_bounds(src.crs or wgs84, wgs84, *src.bounds)
+                all_bounds_wgs84.append(b)
+
+        if not all_bounds_wgs84:
+            return JsonResponse({"detail": "No raster data could be loaded."}, status=422)
 
         minx = min(b[0] for b in all_bounds_wgs84)
         miny = min(b[1] for b in all_bounds_wgs84)
@@ -2349,6 +2611,17 @@ def analysis_phase_raster(request):
             valid = ~np.isnan(band)
             combined[valid]   += band[valid] * weight
             weight_sum[valid] += weight
+
+        for mf, weight in gs_paths_for_bounds:
+            try:
+                band = _aviral_reproject_to_wgs84_grid(mf, dst_transform, wgs84, dst_shape)
+                valid = ~np.isnan(band)
+                combined[valid]   += band[valid] * weight
+                weight_sum[valid] += weight
+            except Exception:
+                pass
+            finally:
+                mf.close()
 
         with np.errstate(invalid="ignore"):
             combined = np.where(weight_sum > 0, combined / weight_sum, np.nan)
@@ -2382,8 +2655,7 @@ def analysis_phase_raster(request):
                 out_ds.write(clipped)
             tiff_bytes = out_mem.read()
 
-        stage_names = ["aviral", "nirmal", "jan", "arth", "gyan", "jeevant"]
-        fname = f"{stage_names[stage_index] if stage_index < len(stage_names) else 'phase'}_analysis.tif"
+        fname = f"{_STAGE_NAMES[stage_index] if stage_index < len(_STAGE_NAMES) else 'phase'}_analysis.tif"
         response = HttpResponse(tiff_bytes, content_type="image/tiff")
         response["Content-Disposition"] = f'inline; filename="{fname}"'
         return response
@@ -2396,11 +2668,14 @@ def analysis_phase_raster(request):
 # Phase raster persistence  (save to media/temp, serve metadata + file)
 # ---------------------------------------------------------------------------
 
+_STAGE_NAMES = ["aviral", "nirmal", "jan", "arth", "gyan", "jeevant"]
+
 def _phase_raster_paths(stage_index: int):
     temp_dir = Path(settings.MEDIA_ROOT) / "temp"
     temp_dir.mkdir(parents=True, exist_ok=True)
-    tif_path  = temp_dir / f"phase_raster_{stage_index}.tif"
-    meta_path = temp_dir / f"phase_raster_{stage_index}.json"
+    name = _STAGE_NAMES[stage_index] if 0 <= stage_index < len(_STAGE_NAMES) else f"phase_{stage_index}"
+    tif_path  = temp_dir / f"{name}.tif"
+    meta_path = temp_dir / f"{name}.json"
     return tif_path, meta_path
 
 
@@ -2470,5 +2745,58 @@ def phase_raster_tiff(request, stage_index: int):
         response["Content-Disposition"] = f'inline; filename="phase_raster_{stage_index}.tif"'
         response["Cache-Control"] = "no-store"
         return response
+    except Exception as exc:
+        return JsonResponse({"detail": str(exc)}, status=500)
+
+
+# ── Split session persistence ─────────────────────────────────────────────────
+
+def _sessions_dir() -> Path:
+    d = Path(settings.MEDIA_ROOT) / "sessions"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def session_save(request):
+    try:
+        data = json.loads(request.body)
+        session_id = data.get("sessionId")
+        if not session_id:
+            return JsonResponse({"detail": "sessionId required"}, status=400)
+        # Sanitise — only allow alphanumeric, dash, underscore
+        safe_id = re.sub(r"[^a-zA-Z0-9_\-]", "_", session_id)
+        path = _sessions_dir() / f"{safe_id}.json"
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        return JsonResponse({"ok": True, "file": f"sessions/{safe_id}.json"})
+    except Exception as exc:
+        return JsonResponse({"detail": str(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+def session_list(request):
+    try:
+        sessions = []
+        for f in sorted(_sessions_dir().glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+            try:
+                obj = json.loads(f.read_text(encoding="utf-8"))
+                sessions.append(obj)
+            except Exception:
+                pass
+        return JsonResponse({"sessions": sessions})
+    except Exception as exc:
+        return JsonResponse({"detail": str(exc)}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["DELETE"])
+def session_delete(request, session_id: str):
+    try:
+        safe_id = re.sub(r"[^a-zA-Z0-9_\-]", "_", session_id)
+        path = _sessions_dir() / f"{safe_id}.json"
+        if path.exists():
+            path.unlink()
+        return JsonResponse({"ok": True})
     except Exception as exc:
         return JsonResponse({"detail": str(exc)}, status=500)

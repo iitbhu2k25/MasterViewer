@@ -5,9 +5,17 @@ import Link from "next/link";
 import "leaflet/dist/leaflet.css";
 import AdminLocation, { STAGE_CONFIGS } from "./components/AdminLocation";
 import AdminMap from "./components/AdminMap";
+import type { BasemapType } from "./components/AdminMap";
 import type { RwqSeason } from "../../shared/map-layers/NirmalRwqLayer";
 import { useLocationSelection } from "../../shared/hooks/useLocationSelection";
 import SplitActivityPanel from "./components/SplitActivityPanel";
+
+const BASEMAP_OPTIONS: { key: BasemapType; label: string; emoji: string }[] = [
+  { key: "terrain",   label: "Terrain",   emoji: "⛰️" },
+  { key: "satellite", label: "Satellite", emoji: "🛰️" },
+  { key: "streets",   label: "Streets",   emoji: "🛣️" },
+  { key: "dark",      label: "Dark",      emoji: "🌑" },
+];
 
 type HolisticModuleProps = {
   hideLeftPanel?: boolean;
@@ -90,10 +98,21 @@ type StageSnapshot = {
   rwqError: string;
   stpData: any[] | null;
   stpError: string;
+  riverFlowStats: Record<string, { mean: number | null; min: number | null; max: number | null }> | null;
+  riverFlowError: string;
+  drainFlowStats: Record<string, { mean: number | null; min: number | null; max: number | null }> | null;
+  channelGeomStats: Record<string, { mean: number | null; min: number | null; max: number | null }> | null;
+  channelGeomError: string;
+  arthStats: Record<string, { by_zone?: Record<string, { mean: number | null; min: number | null; max: number | null }>; error?: string }> | null;
+  arthError: string;
+  gyanStats: Record<string, { by_zone?: Record<string, { mean: number | null; min: number | null; max: number | null }>; error?: string }> | null;
+  gyanError: string;
+  jeevantStats: Record<string, { by_zone?: Record<string, { mean: number | null; min: number | null; max: number | null }>; error?: string }> | null;
+  jeevantError: string;
+  // kept for potential future use but no longer populated
   riverFlowData: RiverFlowRecord[] | null;
   riverFlowSubbasins: number[] | null;
   riverFlowGeojson: any | null;
-  riverFlowError: string;
   industrialLayers: IndustrialLayer[] | null;
   industrialGeojson: any | null;
   industrialError: string;
@@ -134,10 +153,20 @@ function emptySnapshot(): StageSnapshot {
     rwqError: "",
     stpData: null,
     stpError: "",
+    riverFlowStats: null,
+    riverFlowError: "",
+    drainFlowStats: null,
+    channelGeomStats: null,
+    channelGeomError: "",
+    arthStats: null,
+    arthError: "",
+    gyanStats: null,
+    gyanError: "",
+    jeevantStats: null,
+    jeevantError: "",
     riverFlowData: null,
     riverFlowSubbasins: null,
     riverFlowGeojson: null,
-    riverFlowError: "",
     industrialLayers: null,
     industrialGeojson: null,
     industrialError: "",
@@ -173,6 +202,8 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
   } = useLocationSelection();
 
   const [locationVisible, setLocationVisible] = useState(!hideLeftPanel);
+  const [basemap, setBasemap] = useState<BasemapType>("terrain");
+  const [showBasemapPicker, setShowBasemapPicker] = useState(false);
 
   // All stage snapshots — index 0 = stage 1 (Aviral Ganga), index 1 = stage 2 (Nirmal Ganga), etc.
   const [stageIndex, setStageIndex] = useState(0);
@@ -212,6 +243,21 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
   const wantsTributaryDrain = proceededCriteria.some((i) => { const v = i.toLowerCase(); return v.includes("tributary") || v.includes("drain"); });
   const wantsDemSlope = proceededCriteria.some((i) => { const v = i.toLowerCase(); return /\bdem\b/.test(v) || v.includes("slope"); });
   const wantsFlowDirection = proceededCriteria.some((i) => i.toLowerCase().includes("surface flow"));
+  const wantsChannelGeom = proceededCriteria.some((i) => i.toLowerCase().includes("channel geometry"));
+  const wantsAgriculture = proceededCriteria.some((i) => i.toLowerCase().includes("agriculture"));
+  const wantsIrrigation  = proceededCriteria.some((i) => i.toLowerCase().includes("irrigation"));
+  const wantsTourism     = proceededCriteria.some((i) => i.toLowerCase().includes("tourism"));
+  const wantsGhats       = proceededCriteria.some((i) => i.toLowerCase().includes("ghats"));
+  const wantsEconomic    = proceededCriteria.some((i) => i.toLowerCase().includes("economic"));
+  const wantsBaseline    = proceededCriteria.some((i) => i.toLowerCase().includes("baseline"));
+  const wantsGisData     = proceededCriteria.some((i) => i.toLowerCase().includes("remote sensing"));
+  const wantsSwat        = proceededCriteria.some((i) => i.toLowerCase().includes("swat"));
+  const wantsHydrogeology = proceededCriteria.some((i) => i.toLowerCase().includes("hydrogeology"));
+  const wantsSensor      = proceededCriteria.some((i) => i.toLowerCase().includes("monitoring stations"));
+  const wantsWetlands    = proceededCriteria.some((i) => i.toLowerCase().includes("wetlands"));
+  const wantsRiparian    = proceededCriteria.some((i) => i.toLowerCase().includes("riparian"));
+  const wantsBiodiversity = proceededCriteria.some((i) => i.toLowerCase().includes("biodiversity"));
+  const wantsFloodplain  = proceededCriteria.some((i) => i.toLowerCase().includes("floodplain"));
 
   const onToggleDataUsed = (item: string) => {
     const isRemoving = snap.selectedDataUsed.includes(item);
@@ -237,9 +283,19 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
     const nowWantsRiverWaterQuality = criteria.some((i) => i.toLowerCase().includes("river water quality"));
     const nowWantsStp = criteria.some((i) => i.toLowerCase().includes("stp"));
     const nowWantsRiverFlow = criteria.some((i) => i.toLowerCase().includes("river flow"));
+    const nowWantsChannelGeom = criteria.some((i) => i.toLowerCase().includes("channel geometry"));
     const nowWantsIndustrial = criteria.some((i) => i.toLowerCase().includes("industrial"));
     const nowWantsGramPanchayat = criteria.some((i) => i.toLowerCase().includes("gram panchayat"));
     const nowWantsPopulation = criteria.some((i) => i.toLowerCase().includes("population"));
+    const ARTH_CRITERION_KEYS = ["Agriculture (crop area, water demand)", "Irrigation dependency", "Tourism & cultural nodes", "Ghats & heritage sites", "Economic activity zones"];
+    const nowWantsArth = criteria.some((i) => ARTH_CRITERION_KEYS.includes(i));
+    const arthCriteriaNeeded = criteria.filter((i) => ARTH_CRITERION_KEYS.includes(i));
+    const GYAN_CRITERION_KEYS = ["All baseline datasets", "Remote sensing + GIS maps", "SWAT model outputs", "Hydrogeology (aquifer, MAR, paleo-channels)", "Monitoring stations & sensors"];
+    const nowWantsGyan = criteria.some((i) => GYAN_CRITERION_KEYS.includes(i));
+    const gyanCriteriaNeeded = criteria.filter((i) => GYAN_CRITERION_KEYS.includes(i));
+    const JEEVANT_CRITERION_KEYS = ["Wetlands, ponds, lakes", "Riparian vegetation", "Biodiversity (fish, birds, invasive species)", "Floodplain & habitat data"];
+    const nowWantsJeevant = criteria.some((i) => JEEVANT_CRITERION_KEYS.includes(i));
+    const jeevantCriteriaNeeded = criteria.filter((i) => JEEVANT_CRITERION_KEYS.includes(i));
 
     patchSnap({
       showOutputs: true,
@@ -257,10 +313,20 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
       rwqStats: null,
       stpError: "",
       stpData: null,
+      riverFlowStats: null,
+      riverFlowError: "",
+      drainFlowStats: null,
+      channelGeomStats: null,
+      channelGeomError: "",
+      arthStats: null,
+      arthError: "",
+      gyanStats: null,
+      gyanError: "",
+      jeevantStats: null,
+      jeevantError: "",
       riverFlowData: null,
       riverFlowSubbasins: null,
       riverFlowGeojson: null,
-      riverFlowError: "",
       industrialLayers: null,
       industrialGeojson: null,
       industrialError: "",
@@ -330,7 +396,7 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
         if (!res.ok) {
           patchSnap({ tributaryDrainError: data?.detail || `Tributary & drain analysis failed (${res.status})` });
         } else {
-          nextResult.tributary_drain = data?.tributary_drain || nextResult.tributary_drain;
+          patchSnap({ drainFlowStats: data.drain_flow?.by_zone ?? null });
         }
       }
 
@@ -395,11 +461,59 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
         if (!res.ok) {
           patchSnap({ riverFlowError: data?.detail || `River flow fetch failed (${res.status})` });
         } else {
-          patchSnap({
-            riverFlowData: data.records ?? [],
-            riverFlowSubbasins: data.subbasin_ids ?? [],
-            riverFlowGeojson: data.geojson ?? null,
-          });
+          patchSnap({ riverFlowStats: data.river_flow?.by_zone ?? null });
+        }
+      }
+
+      if (nowWantsChannelGeom) {
+        const res = await fetch(`${backendBase}/analysis/channel-geometry`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ selected_zones: selectedZones }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          patchSnap({ channelGeomError: data?.detail || `Channel geometry fetch failed (${res.status})` });
+        } else {
+          patchSnap({ channelGeomStats: data.channel_geometry?.by_zone ?? null });
+        }
+      }
+
+      if (nowWantsArth && arthCriteriaNeeded.length) {
+        const res = await fetch(`${backendBase}/analysis/arth-ganga`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ selected_zones: selectedZones, criteria: arthCriteriaNeeded }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          patchSnap({ arthError: data?.detail || `Arth Ganga fetch failed (${res.status})` });
+        } else {
+          patchSnap({ arthStats: data.arth_ganga ?? null });
+        }
+      }
+
+      if (nowWantsGyan && gyanCriteriaNeeded.length) {
+        const res = await fetch(`${backendBase}/analysis/gyan-ganga`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ selected_zones: selectedZones, criteria: gyanCriteriaNeeded }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          patchSnap({ gyanError: data?.detail || `Gyan Ganga fetch failed (${res.status})` });
+        } else {
+          patchSnap({ gyanStats: data.gyan_ganga ?? null });
+        }
+      }
+
+      if (nowWantsJeevant && jeevantCriteriaNeeded.length) {
+        const res = await fetch(`${backendBase}/analysis/jeevant-ganga`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ selected_zones: selectedZones, criteria: jeevantCriteriaNeeded }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          patchSnap({ jeevantError: data?.detail || `Jeevant Ganga fetch failed (${res.status})` });
+        } else {
+          patchSnap({ jeevantStats: data.jeevant_ganga ?? null });
         }
       }
 
@@ -520,22 +634,16 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
   const { analysisResult, showRainfallLayer, showRechargeLayer, selectedRainfallYear,
     outputLoading, rainfallError, groundwaterError, tributaryDrainError,
     demSlopeError, flowDirectionError, showOutputs, rwqSeason, rwqStats, rwqError,
-    stpData, stpError, riverFlowData, riverFlowSubbasins, riverFlowGeojson, riverFlowError,
+    stpData, stpError, riverFlowStats, riverFlowError, drainFlowStats, channelGeomStats, channelGeomError,
+    arthStats, arthError,
+    gyanStats, gyanError,
+    jeevantStats, jeevantError,
     industrialLayers, industrialGeojson, industrialError,
     gramPanchayatData, gramPanchayatGeojson, gramPanchayatError,
     populationData, populationGeojson, populationError, populationTotal,
     criteriaWeights } = snap;
   const { phaseLoading, phaseError, phaseTiff, showPhaseOnMap } = snap;
 
-  const [rfYear, setRfYear] = useState<number | "all">("all");
-  const [rfMonth, setRfMonth] = useState<number | "all">("all");
-
-  const rfYears = riverFlowData ? [...new Set(riverFlowData.map(r => r.year))].sort((a, b) => a - b) : [];
-  const rfMonths = riverFlowData ? [...new Set(riverFlowData.map(r => r.month))].sort((a, b) => a - b) : [];
-  const rfFiltered = (riverFlowData ?? []).filter(r =>
-    (rfYear === "all" || r.year === rfYear) &&
-    (rfMonth === "all" || r.month === rfMonth)
-  );
 
   return (
     <div className="min-h-screen bg-[#eef2f8] p-1 md:p-2">
@@ -567,9 +675,6 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
               showRechargeLayer={showRechargeLayer}
               rainfallYear={selectedRainfallYear}
               clipApiBase={backendBase}
-              riverFlowSubbasins={wantsRiverFlow ? (riverFlowSubbasins ?? []) : []}
-              riverFlowGeojson={wantsRiverFlow ? riverFlowGeojson : null}
-              riverFlowRecords={wantsRiverFlow ? (riverFlowData ?? []) : []}
               industrialGeojson={wantsIndustrial ? industrialGeojson : null}
               gramPanchayatGeojson={wantsGramPanchayat ? gramPanchayatGeojson : null}
               populationGeojson={wantsPopulation ? populationGeojson : null}
@@ -579,16 +684,73 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
                 ...(wantsGramPanchayat ? ["Gram Panchayat data"] : []),
                 ...(wantsPopulation ? ["Population (urban/rural)"] : []),
                 ...(wantsTributaryDrain ? ["Tributary & drain flow"] : []),
+                ...(wantsChannelGeom ? ["Channel geometry (width, depth)"] : []),
                 ...(wantsDemSlope ? ["DEM, slope maps"] : []),
                 ...(wantsFlowDirection ? ["Surface flow direction & accumulation maps"] : []),
                 ...(wantsGroundwaterQuality ? ["Groundwater quality"] : []),
                 ...(wantsRiverWaterQuality ? ["River water quality"] : []),
                 ...(wantsStp ? ["STP details"] : []),
+                ...(wantsAgriculture   ? ["Agriculture (crop area, water demand)"] : []),
+                ...(wantsIrrigation   ? ["Irrigation dependency"] : []),
+                ...(wantsTourism      ? ["Tourism & cultural nodes"] : []),
+                ...(wantsGhats        ? ["Ghats & heritage sites"] : []),
+                ...(wantsEconomic     ? ["Economic activity zones"] : []),
+                ...(wantsBaseline     ? ["All baseline datasets"] : []),
+                ...(wantsGisData      ? ["Remote sensing + GIS maps"] : []),
+                ...(wantsSwat         ? ["SWAT model outputs"] : []),
+                ...(wantsHydrogeology ? ["Hydrogeology (aquifer, MAR, paleo-channels)"] : []),
+                ...(wantsSensor       ? ["Monitoring stations & sensors"] : []),
+                ...(wantsWetlands     ? ["Wetlands, ponds, lakes"] : []),
+                ...(wantsRiparian     ? ["Riparian vegetation"] : []),
+                ...(wantsBiodiversity ? ["Biodiversity (fish, birds, invasive species)"] : []),
+                ...(wantsFloodplain   ? ["Floodplain & habitat data"] : []),
               ]}
               rwqSeason={rwqSeason}
               onStpDataLoaded={onStpDataLoaded}
               aviralTiff={showPhaseOnMap ? phaseTiff : null}
+              basemap={basemap}
             />
+
+            {/* ── Basemap switcher — bottom-right inside the map ── */}
+            <div style={{ position: "absolute", bottom: 24, right: 16, zIndex: 950, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+              {showBasemapPicker && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, background: "rgba(255,255,255,0.95)", borderRadius: 12, padding: "8px 6px", boxShadow: "0 4px 20px rgba(0,0,0,0.15)", border: "1px solid #e2e8f0" }}>
+                  {BASEMAP_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => { setBasemap(opt.key); setShowBasemapPicker(false); }}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 8,
+                        padding: "6px 12px", borderRadius: 8, border: "none", cursor: "pointer",
+                        background: basemap === opt.key ? "#eff6ff" : "transparent",
+                        color: basemap === opt.key ? "#1d4ed8" : "#374151",
+                        fontWeight: basemap === opt.key ? 700 : 500,
+                        fontSize: 12,
+                        outline: basemap === opt.key ? "1.5px solid #93c5fd" : "none",
+                        transition: "all 0.15s",
+                      }}
+                    >
+                      <span style={{ fontSize: 15 }}>{opt.emoji}</span>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowBasemapPicker((p) => !p)}
+                title="Change basemap"
+                style={{
+                  width: 40, height: 40, borderRadius: "50%", border: "2px solid #e2e8f0",
+                  background: "#fff", boxShadow: "0 2px 10px rgba(0,0,0,0.15)",
+                  cursor: "pointer", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center",
+                  transition: "box-shadow 0.15s",
+                }}
+              >
+                {BASEMAP_OPTIONS.find((o) => o.key === basemap)?.emoji ?? "🗺️"}
+              </button>
+            </div>
           </div>
 
           {!hideLeftPanel ? (
@@ -670,62 +832,32 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
 
                 {wantsRiverFlow ? (
                   <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3">
-                    <p className="mb-2 text-sm font-bold text-blue-900">River Flow (Monthly)</p>
-                    {outputLoading && !riverFlowData ? <p className="text-sm text-blue-700">Loading river flow data…</p> : null}
+                    <p className="mb-2 text-sm font-bold text-blue-900">River Flow — Zonal Stats (dss_raster:river_flow_1)</p>
+                    {outputLoading && !riverFlowStats ? <p className="text-sm text-blue-700">Loading…</p> : null}
                     {riverFlowError ? <p className="text-sm text-red-700">{riverFlowError}</p> : null}
-                    {riverFlowData && (
-                      <>
-                        {/* Filters */}
-                        <div className="mb-2 flex flex-wrap gap-2">
-                          <div className="flex items-center gap-1">
-                            <label className="text-xs font-semibold text-slate-600">Year:</label>
-                            <select className="rounded border border-slate-300 px-1 py-0.5 text-xs" value={rfYear} onChange={e => setRfYear(e.target.value === "all" ? "all" : Number(e.target.value))}>
-                              <option value="all">All</option>
-                              {rfYears.map(y => <option key={y} value={y}>{y}</option>)}
-                            </select>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <label className="text-xs font-semibold text-slate-600">Month:</label>
-                            <select className="rounded border border-slate-300 px-1 py-0.5 text-xs" value={rfMonth} onChange={e => setRfMonth(e.target.value === "all" ? "all" : Number(e.target.value))}>
-                              <option value="all">All</option>
-                              {rfMonths.map(m => <option key={m} value={m}>{m}</option>)}
-                            </select>
-                          </div>
-                          <span className="ml-auto text-xs text-slate-500">{rfFiltered.length} records</span>
-                        </div>
-                        {/* Table */}
-                        <div className="max-h-72 overflow-auto rounded border border-blue-100 bg-white">
-                          <table className="w-full border-collapse text-xs text-slate-700">
-                            <thead className="sticky top-0 bg-blue-100">
-                              <tr>
-                                <th className="border border-blue-200 px-2 py-1 text-left">Subbasin</th>
-                                <th className="border border-blue-200 px-2 py-1 text-left">SUB</th>
-                                <th className="border border-blue-200 px-2 py-1 text-right">Year</th>
-                                <th className="border border-blue-200 px-2 py-1 text-right">Month</th>
-                                <th className="border border-blue-200 px-2 py-1 text-right">Area (km²)</th>
-                                <th className="border border-blue-200 px-2 py-1 text-right">Flow In (cm)</th>
-                                <th className="border border-blue-200 px-2 py-1 text-right">Flow Out (cm)</th>
+                    {riverFlowStats && (
+                      <div className="overflow-auto rounded border border-blue-100 bg-white">
+                        <table className="w-full border-collapse text-xs text-slate-700">
+                          <thead className="sticky top-0 bg-blue-100">
+                            <tr>
+                              <th className="border border-blue-200 px-2 py-1 text-left">Zone</th>
+                              <th className="border border-blue-200 px-2 py-1 text-right">Mean</th>
+                              <th className="border border-blue-200 px-2 py-1 text-right">Min</th>
+                              <th className="border border-blue-200 px-2 py-1 text-right">Max</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(riverFlowStats).map(([zone, s], i) => (
+                              <tr key={zone} className={i % 2 === 0 ? "bg-white" : "bg-blue-50"}>
+                                <td className="border border-blue-100 px-2 py-1 font-medium">{zone}</td>
+                                <td className="border border-blue-100 px-2 py-1 text-right">{s.mean != null ? s.mean.toFixed(4) : "—"}</td>
+                                <td className="border border-blue-100 px-2 py-1 text-right">{s.min != null ? s.min.toFixed(4) : "—"}</td>
+                                <td className="border border-blue-100 px-2 py-1 text-right">{s.max != null ? s.max.toFixed(4) : "—"}</td>
                               </tr>
-                            </thead>
-                            <tbody>
-                              {rfFiltered.map((r, i) => (
-                                <tr key={`${r.yyyyddd}-${r.Subbasin}`} className={i % 2 === 0 ? "bg-white" : "bg-blue-50"}>
-                                  <td className="border border-blue-100 px-2 py-1">{r.Subbasin}</td>
-                                  <td className="border border-blue-100 px-2 py-1">{r.SUB}</td>
-                                  <td className="border border-blue-100 px-2 py-1 text-right">{r.year}</td>
-                                  <td className="border border-blue-100 px-2 py-1 text-right">{r.month}</td>
-                                  <td className="border border-blue-100 px-2 py-1 text-right">{r.area_km2.toFixed(2)}</td>
-                                  <td className="border border-blue-100 px-2 py-1 text-right">{r.flow_in_cm.toFixed(4)}</td>
-                                  <td className="border border-blue-100 px-2 py-1 text-right">{r.flow_out_c.toFixed(4)}</td>
-                                </tr>
-                              ))}
-                              {rfFiltered.length === 0 && (
-                                <tr><td colSpan={7} className="px-2 py-3 text-center text-slate-400 italic">No records match the selected filters.</td></tr>
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-                      </>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     )}
                   </div>
                 ) : null}
@@ -881,38 +1013,203 @@ export default function HolisticModule({ hideLeftPanel = false }: HolisticModule
                 ) : null}
 
                 {wantsTributaryDrain ? (
-                  <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
-                    <p className="mb-2 text-sm font-bold text-slate-900">Tributary & Drain Flow Output (Selected Zones)</p>
-                    {outputLoading ? <p className="text-sm text-blue-700">Running analysis...</p> : null}
+                  <div className="mt-3 rounded-lg border border-teal-200 bg-teal-50 p-3">
+                    <p className="mb-2 text-sm font-bold text-teal-900">Drain Flow — Zonal Stats (dss_raster:drain_flow_1)</p>
+                    {outputLoading && !drainFlowStats ? <p className="text-sm text-teal-700">Loading…</p> : null}
                     {tributaryDrainError ? <p className="text-sm text-red-700">{tributaryDrainError}</p> : null}
-                    {!outputLoading && !tributaryDrainError && analysisResult?.tributary_drain?.layers?.length ? (
-                      <div className="max-h-72 overflow-auto text-xs text-slate-700">
-                        <table className="w-full border-collapse">
-                          <thead>
-                            <tr className="bg-slate-50">
-                              <th className="border border-slate-200 px-2 py-1 text-left">Layer</th>
-                              <th className="border border-slate-200 px-2 py-1 text-left">Intersecting Features</th>
-                              {selectedZones.map((zone: string) => (
-                                <th key={`hdr-${zone}`} className="border border-slate-200 px-2 py-1 text-left">{zone}</th>
-                              ))}
+                    {drainFlowStats && (
+                      <div className="overflow-auto rounded border border-teal-100 bg-white">
+                        <table className="w-full border-collapse text-xs text-slate-700">
+                          <thead className="sticky top-0 bg-teal-100">
+                            <tr>
+                              <th className="border border-teal-200 px-2 py-1 text-left">Zone</th>
+                              <th className="border border-teal-200 px-2 py-1 text-right">Mean</th>
+                              <th className="border border-teal-200 px-2 py-1 text-right">Min</th>
+                              <th className="border border-teal-200 px-2 py-1 text-right">Max</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {analysisResult.tributary_drain.layers.map((row: any) => (
-                              <tr key={`td-${row.layer}`}>
-                                <td className="border border-slate-200 px-2 py-1 font-semibold">{row.label || row.layer}</td>
-                                <td className="border border-slate-200 px-2 py-1">{row.error ? "N/A" : row.intersecting_features}</td>
-                                {selectedZones.map((zone: string) => (
-                                  <td key={`${row.layer}-${zone}`} className="border border-slate-200 px-2 py-1">
-                                    {row.error ? "-" : (row.by_zone?.[zone] ?? 0)}
-                                  </td>
-                                ))}
+                            {Object.entries(drainFlowStats).map(([zone, s], i) => (
+                              <tr key={zone} className={i % 2 === 0 ? "bg-white" : "bg-teal-50"}>
+                                <td className="border border-teal-100 px-2 py-1 font-medium">{zone}</td>
+                                <td className="border border-teal-100 px-2 py-1 text-right">{s.mean != null ? s.mean.toFixed(4) : "—"}</td>
+                                <td className="border border-teal-100 px-2 py-1 text-right">{s.min != null ? s.min.toFixed(4) : "—"}</td>
+                                <td className="border border-teal-100 px-2 py-1 text-right">{s.max != null ? s.max.toFixed(4) : "—"}</td>
                               </tr>
                             ))}
                           </tbody>
                         </table>
                       </div>
-                    ) : null}
+                    )}
+                  </div>
+                ) : null}
+
+                {wantsChannelGeom ? (
+                  <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+                    <p className="mb-2 text-sm font-bold text-indigo-900">Channel Geometry — Zonal Stats (dss_raster:channel_1)</p>
+                    {outputLoading && !channelGeomStats ? <p className="text-sm text-indigo-700">Loading…</p> : null}
+                    {channelGeomError ? <p className="text-sm text-red-700">{channelGeomError}</p> : null}
+                    {channelGeomStats && (
+                      <div className="overflow-auto rounded border border-indigo-100 bg-white">
+                        <table className="w-full border-collapse text-xs text-slate-700">
+                          <thead className="sticky top-0 bg-indigo-100">
+                            <tr>
+                              <th className="border border-indigo-200 px-2 py-1 text-left">Zone</th>
+                              <th className="border border-indigo-200 px-2 py-1 text-right">Mean</th>
+                              <th className="border border-indigo-200 px-2 py-1 text-right">Min</th>
+                              <th className="border border-indigo-200 px-2 py-1 text-right">Max</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(channelGeomStats).map(([zone, s], i) => (
+                              <tr key={zone} className={i % 2 === 0 ? "bg-white" : "bg-indigo-50"}>
+                                <td className="border border-indigo-100 px-2 py-1 font-medium">{zone}</td>
+                                <td className="border border-indigo-100 px-2 py-1 text-right">{s.mean != null ? s.mean.toFixed(4) : "—"}</td>
+                                <td className="border border-indigo-100 px-2 py-1 text-right">{s.min != null ? s.min.toFixed(4) : "—"}</td>
+                                <td className="border border-indigo-100 px-2 py-1 text-right">{s.max != null ? s.max.toFixed(4) : "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+
+                {(wantsBaseline || wantsGisData || wantsSwat || wantsHydrogeology || wantsSensor) ? (
+                  <div className="mt-3 space-y-3">
+                    {gyanError ? <p className="text-sm text-red-700">{gyanError}</p> : null}
+                    {outputLoading && !gyanStats ? <p className="text-sm text-slate-500">Loading Gyan Ganga data…</p> : null}
+                    {([
+                      { key: "All baseline datasets",                       wants: wantsBaseline,     label: "Baseline Datasets",    border: "border-slate-300",  bg: "bg-slate-50",  hbg: "bg-slate-100",  text: "text-slate-900",  cellBorder: "border-slate-200",  cellBg: "bg-slate-50"  },
+                      { key: "Remote sensing + GIS maps",                   wants: wantsGisData,      label: "Remote Sensing / GIS", border: "border-lime-300",   bg: "bg-lime-50",   hbg: "bg-lime-100",   text: "text-lime-900",   cellBorder: "border-lime-200",   cellBg: "bg-lime-50"   },
+                      { key: "SWAT model outputs",                          wants: wantsSwat,         label: "SWAT Model",           border: "border-sky-200",    bg: "bg-sky-50",    hbg: "bg-sky-100",    text: "text-sky-900",    cellBorder: "border-sky-100",    cellBg: "bg-sky-50"    },
+                      { key: "Hydrogeology (aquifer, MAR, paleo-channels)", wants: wantsHydrogeology, label: "Hydrogeology",         border: "border-orange-200", bg: "bg-orange-50", hbg: "bg-orange-100", text: "text-orange-900", cellBorder: "border-orange-100", cellBg: "bg-orange-50" },
+                      { key: "Monitoring stations & sensors",               wants: wantsSensor,       label: "Monitoring Sensors",   border: "border-violet-200", bg: "bg-violet-50", hbg: "bg-violet-100", text: "text-violet-900", cellBorder: "border-violet-100", cellBg: "bg-violet-50" },
+                    ] as const).filter(({ wants }) => wants).map(({ key, label, border, bg, hbg, text, cellBorder, cellBg }) => {
+                      const entry = gyanStats?.[key];
+                      return (
+                        <div key={key} className={`rounded-lg border ${border} ${bg} p-3`}>
+                          <p className={`mb-2 text-sm font-bold ${text}`}>{label} — Zonal Stats</p>
+                          {entry?.error ? <p className="text-sm text-red-700">{entry.error}</p> : null}
+                          {entry?.by_zone && (
+                            <div className="overflow-auto rounded border bg-white" style={{ borderColor: "inherit" }}>
+                              <table className="w-full border-collapse text-xs text-slate-700">
+                                <thead className={`sticky top-0 ${hbg}`}>
+                                  <tr>
+                                    <th className={`border ${cellBorder} px-2 py-1 text-left`}>Zone</th>
+                                    <th className={`border ${cellBorder} px-2 py-1 text-right`}>Mean</th>
+                                    <th className={`border ${cellBorder} px-2 py-1 text-right`}>Min</th>
+                                    <th className={`border ${cellBorder} px-2 py-1 text-right`}>Max</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {Object.entries(entry.by_zone).map(([zone, s], i) => (
+                                    <tr key={zone} className={i % 2 === 0 ? "bg-white" : cellBg}>
+                                      <td className={`border ${cellBorder} px-2 py-1 font-medium`}>{zone}</td>
+                                      <td className={`border ${cellBorder} px-2 py-1 text-right`}>{s.mean != null ? Number(s.mean).toFixed(4) : "—"}</td>
+                                      <td className={`border ${cellBorder} px-2 py-1 text-right`}>{s.min != null ? Number(s.min).toFixed(4) : "—"}</td>
+                                      <td className={`border ${cellBorder} px-2 py-1 text-right`}>{s.max != null ? Number(s.max).toFixed(4) : "—"}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
+                {(wantsWetlands || wantsRiparian || wantsBiodiversity || wantsFloodplain) ? (
+                  <div className="mt-3 space-y-3">
+                    {jeevantError ? <p className="text-sm text-red-700">{jeevantError}</p> : null}
+                    {outputLoading && !jeevantStats ? <p className="text-sm text-slate-500">Loading Jeevant Ganga data…</p> : null}
+                    {([
+                      { key: "Wetlands, ponds, lakes",                       wants: wantsWetlands,    label: "Wetlands",       border: "border-teal-200",  bg: "bg-teal-50",  hbg: "bg-teal-100",  text: "text-teal-900",  cellBorder: "border-teal-100",  cellBg: "bg-teal-50"  },
+                      { key: "Riparian vegetation",                           wants: wantsRiparian,    label: "Riparian Veg.",  border: "border-green-200", bg: "bg-green-50", hbg: "bg-green-100", text: "text-green-900", cellBorder: "border-green-100", cellBg: "bg-green-50" },
+                      { key: "Biodiversity (fish, birds, invasive species)",  wants: wantsBiodiversity,label: "Biodiversity",   border: "border-yellow-200",bg: "bg-yellow-50",hbg: "bg-yellow-100",text: "text-yellow-900",cellBorder: "border-yellow-100",cellBg: "bg-yellow-50"},
+                      { key: "Floodplain & habitat data",                     wants: wantsFloodplain,  label: "Floodplain",     border: "border-indigo-200",bg: "bg-indigo-50",hbg: "bg-indigo-100",text: "text-indigo-900",cellBorder: "border-indigo-100",cellBg: "bg-indigo-50"},
+                    ] as const).filter(({ wants }) => wants).map(({ key, label, border, bg, hbg, text, cellBorder, cellBg }) => {
+                      const entry = jeevantStats?.[key];
+                      return (
+                        <div key={key} className={`rounded-lg border ${border} ${bg} p-3`}>
+                          <p className={`mb-2 text-sm font-bold ${text}`}>{label} — Zonal Stats</p>
+                          {entry?.error ? <p className="text-sm text-red-700">{entry.error}</p> : null}
+                          {entry?.by_zone && (
+                            <div className="overflow-auto rounded border bg-white" style={{ borderColor: "inherit" }}>
+                              <table className="w-full border-collapse text-xs text-slate-700">
+                                <thead className={`sticky top-0 ${hbg}`}>
+                                  <tr>
+                                    <th className={`border ${cellBorder} px-2 py-1 text-left`}>Zone</th>
+                                    <th className={`border ${cellBorder} px-2 py-1 text-right`}>Mean</th>
+                                    <th className={`border ${cellBorder} px-2 py-1 text-right`}>Min</th>
+                                    <th className={`border ${cellBorder} px-2 py-1 text-right`}>Max</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {Object.entries(entry.by_zone).map(([zone, s], i) => (
+                                    <tr key={zone} className={i % 2 === 0 ? "bg-white" : cellBg}>
+                                      <td className={`border ${cellBorder} px-2 py-1 font-medium`}>{zone}</td>
+                                      <td className={`border ${cellBorder} px-2 py-1 text-right`}>{s.mean != null ? Number(s.mean).toFixed(4) : "—"}</td>
+                                      <td className={`border ${cellBorder} px-2 py-1 text-right`}>{s.min != null ? Number(s.min).toFixed(4) : "—"}</td>
+                                      <td className={`border ${cellBorder} px-2 py-1 text-right`}>{s.max != null ? Number(s.max).toFixed(4) : "—"}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
+                {(wantsAgriculture || wantsIrrigation || wantsTourism || wantsGhats || wantsEconomic) ? (
+                  <div className="mt-3 space-y-3">
+                    {arthError ? <p className="text-sm text-red-700">{arthError}</p> : null}
+                    {outputLoading && !arthStats ? <p className="text-sm text-slate-500">Loading Arth Ganga data…</p> : null}
+                    {([
+                      { key: "Agriculture (crop area, water demand)", wants: wantsAgriculture, label: "Agriculture",       border: "border-green-200",  bg: "bg-green-50",  hbg: "bg-green-100",  text: "text-green-900",  cellBorder: "border-green-100",  cellBg: "bg-green-50"  },
+                      { key: "Irrigation dependency",                 wants: wantsIrrigation,  label: "Irrigation",        border: "border-cyan-200",   bg: "bg-cyan-50",   hbg: "bg-cyan-100",   text: "text-cyan-900",   cellBorder: "border-cyan-100",   cellBg: "bg-cyan-50"   },
+                      { key: "Tourism & cultural nodes",              wants: wantsTourism,     label: "Tourism & Culture", border: "border-amber-200",  bg: "bg-amber-50",  hbg: "bg-amber-100",  text: "text-amber-900",  cellBorder: "border-amber-100",  cellBg: "bg-amber-50"  },
+                      { key: "Ghats & heritage sites",               wants: wantsGhats,       label: "Ghats & Heritage",  border: "border-rose-200",   bg: "bg-rose-50",   hbg: "bg-rose-100",   text: "text-rose-900",   cellBorder: "border-rose-100",   cellBg: "bg-rose-50"   },
+                      { key: "Economic activity zones",               wants: wantsEconomic,    label: "Economic Activity", border: "border-purple-200", bg: "bg-purple-50", hbg: "bg-purple-100", text: "text-purple-900", cellBorder: "border-purple-100", cellBg: "bg-purple-50" },
+                    ] as const).filter(({ wants }) => wants).map(({ key, label, border, bg, hbg, text, cellBorder, cellBg }) => {
+                      const entry = arthStats?.[key];
+                      return (
+                        <div key={key} className={`rounded-lg border ${border} ${bg} p-3`}>
+                          <p className={`mb-2 text-sm font-bold ${text}`}>{label} — Zonal Stats</p>
+                          {entry?.error ? <p className="text-sm text-red-700">{entry.error}</p> : null}
+                          {entry?.by_zone && (
+                            <div className="overflow-auto rounded border bg-white" style={{ borderColor: "inherit" }}>
+                              <table className="w-full border-collapse text-xs text-slate-700">
+                                <thead className={`sticky top-0 ${hbg}`}>
+                                  <tr>
+                                    <th className={`border ${cellBorder} px-2 py-1 text-left`}>Zone</th>
+                                    <th className={`border ${cellBorder} px-2 py-1 text-right`}>Mean</th>
+                                    <th className={`border ${cellBorder} px-2 py-1 text-right`}>Min</th>
+                                    <th className={`border ${cellBorder} px-2 py-1 text-right`}>Max</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {Object.entries(entry.by_zone).map(([zone, s], i) => (
+                                    <tr key={zone} className={i % 2 === 0 ? "bg-white" : cellBg}>
+                                      <td className={`border ${cellBorder} px-2 py-1 font-medium`}>{zone}</td>
+                                      <td className={`border ${cellBorder} px-2 py-1 text-right`}>{s.mean != null ? Number(s.mean).toFixed(4) : "—"}</td>
+                                      <td className={`border ${cellBorder} px-2 py-1 text-right`}>{s.min != null ? Number(s.min).toFixed(4) : "—"}</td>
+                                      <td className={`border ${cellBorder} px-2 py-1 text-right`}>{s.max != null ? Number(s.max).toFixed(4) : "—"}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : null}
 

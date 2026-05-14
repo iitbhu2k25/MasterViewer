@@ -36,9 +36,16 @@ type SplitMasterPanelProps = {
   arthCriteria?: string[];
   onArthCriteriaChange?: (criteria: string[]) => void;
   onArthCombinedTiffChange?: (tiff: ArrayBuffer | null) => void;
-  activeModule: "Aviral Ganga" | "Nirmal Ganga" | "Jan Ganga" | "Arth Ganga" | "STP Suitability";
-  onActiveModuleChange: (module: "Aviral Ganga" | "Nirmal Ganga" | "Jan Ganga" | "Arth Ganga" | "STP Suitability") => void;
+  gyanCriteria?: string[];
+  onGyanCriteriaChange?: (criteria: string[]) => void;
+  onGyanCombinedTiffChange?: (tiff: ArrayBuffer | null) => void;
+  jeevantCriteria?: string[];
+  onJeevantCriteriaChange?: (criteria: string[]) => void;
+  onJeevantCombinedTiffChange?: (tiff: ArrayBuffer | null) => void;
+  activeModule: "Aviral Ganga" | "Nirmal Ganga" | "Jan Ganga" | "Arth Ganga" | "Gyan Ganga" | "Jeevant Ganga" | "STP Suitability";
+  onActiveModuleChange: (module: "Aviral Ganga" | "Nirmal Ganga" | "Jan Ganga" | "Arth Ganga" | "Gyan Ganga" | "Jeevant Ganga" | "STP Suitability") => void;
   onResetAllSTP?: () => void;
+  onActiveCombinedMetaChange?: (meta: CombinedMeta) => void;
 };
 
 const basemapOptions: { key: BasemapType; label: string; icon: string }[] = [
@@ -86,9 +93,16 @@ export default function SplitMasterPanel({
   arthCriteria = [],
   onArthCriteriaChange,
   onArthCombinedTiffChange,
+  gyanCriteria = [],
+  onGyanCriteriaChange,
+  onGyanCombinedTiffChange,
+  jeevantCriteria = [],
+  onJeevantCriteriaChange,
+  onJeevantCombinedTiffChange,
   activeModule,
   onActiveModuleChange,
   onResetAllSTP,
+  onActiveCombinedMetaChange,
 }: SplitMasterPanelProps) {
   const [showScreensDropdown, setShowScreensDropdown] = useState(false);
   const [showViewerSize, setShowViewerSize] = useState(false);
@@ -143,6 +157,21 @@ export default function SplitMasterPanel({
     "Economic activity zones",
   ] as const;
 
+  const GYAN_CRITERIA = [
+    "All baseline datasets",
+    "Remote sensing + GIS maps",
+    "SWAT model outputs",
+    "Hydrogeology (aquifer, MAR, paleo-channels)",
+    "Monitoring stations & sensors",
+  ] as const;
+
+  const JEEVANT_CRITERIA = [
+    "Wetlands, ponds, lakes",
+    "Riparian vegetation",
+    "Biodiversity (fish, birds, invasive species)",
+    "Floodplain & habitat data",
+  ] as const;
+
   const COMBINED_LABEL = "Combined Output";
   const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:9000";
 
@@ -151,30 +180,43 @@ export default function SplitMasterPanel({
   const [nirmalCombinedMeta, setNirmalCombinedMeta] = useState<CombinedMeta>(null);
   const [janCombinedMeta, setJanCombinedMeta] = useState<CombinedMeta>(null);
   const [arthCombinedMeta, setArthCombinedMeta] = useState<CombinedMeta>(null);
+  const [gyanCombinedMeta, setGyanCombinedMeta] = useState<CombinedMeta>(null);
+  const [jeevantCombinedMeta, setJeevantCombinedMeta] = useState<CombinedMeta>(null);
 
-  // Track last-seen generated_at so we only re-fetch tiff when the raster actually changes
-  const aviralGenRef   = useRef<number | null>(null);
-  const nirmalGenRef   = useRef<number | null>(null);
-  const janGenRef      = useRef<number | null>(null);
-  const arthGenRef     = useRef<number | null>(null);
-  const aviralActiveRef  = useRef(false);
-  const nirmalActiveRef  = useRef(false);
-  const janActiveRef     = useRef(false);
-  const arthActiveRef    = useRef(false);
+  const aviralGenRef    = useRef<number | null>(null);
+  const nirmalGenRef    = useRef<number | null>(null);
+  const janGenRef       = useRef<number | null>(null);
+  const arthGenRef      = useRef<number | null>(null);
+  const gyanGenRef      = useRef<number | null>(null);
+  const jeevantGenRef   = useRef<number | null>(null);
+  const aviralActiveRef   = useRef(false);
+  const nirmalActiveRef   = useRef(false);
+  const janActiveRef      = useRef(false);
+  const arthActiveRef     = useRef(false);
+  const gyanActiveRef     = useRef(false);
+  const jeevantActiveRef  = useRef(false);
 
-  // Poll backend every 10s — only update state when generated_at changes
+  // Single polling effect — only polls the active module's stage, switches when module changes
   useEffect(() => {
+    const stageMap: Partial<Record<string, number>> = {
+      "Aviral Ganga": 0, "Nirmal Ganga": 1, "Jan Ganga": 2, "Arth Ganga": 3, "Gyan Ganga": 4, "Jeevant Ganga": 5,
+    };
+    const stageIndex = stageMap[activeModule];
+    if (stageIndex === undefined) return; // STP Suitability — no meta polling
     let cancelled = false;
+    const genRefs = [aviralGenRef, nirmalGenRef, janGenRef, arthGenRef, gyanGenRef, jeevantGenRef];
+    const setters = [setCombinedMeta, setNirmalCombinedMeta, setJanCombinedMeta, setArthCombinedMeta, setGyanCombinedMeta, setJeevantCombinedMeta];
     const load = () => {
-      fetch(`${BACKEND}/analysis/phase-raster-meta/0`)
+      fetch(`${BACKEND}/analysis/phase-raster-meta/${stageIndex}`)
         .then((r) => (r.ok ? r.json() : null))
         .then((d) => {
           if (cancelled) return;
           const meta = d as CombinedMeta;
           const gen = meta?.generated_at ?? null;
-          if (gen !== aviralGenRef.current) {
-            aviralGenRef.current = gen;
-            setCombinedMeta(meta ?? null);
+          if (gen !== genRefs[stageIndex].current) {
+            genRefs[stageIndex].current = gen;
+            setters[stageIndex](meta ?? null);
+            onActiveCombinedMetaChange?.(meta ?? null);
           }
         })
         .catch(() => {});
@@ -183,133 +225,83 @@ export default function SplitMasterPanel({
     const interval = setInterval(load, 10000);
     return () => { cancelled = true; clearInterval(interval); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [activeModule]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = () => {
-      fetch(`${BACKEND}/analysis/phase-raster-meta/1`)
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => {
-          if (cancelled) return;
-          const meta = d as CombinedMeta;
-          const gen = meta?.generated_at ?? null;
-          if (gen !== nirmalGenRef.current) {
-            nirmalGenRef.current = gen;
-            setNirmalCombinedMeta(meta ?? null);
-          }
-        })
-        .catch(() => {});
-    };
-    load();
-    const interval = setInterval(load, 10000);
-    return () => { cancelled = true; clearInterval(interval); };
+  // Helper: fetch meta if missing, then fetch the tiff. Handles the case where
+  // Combined Output is clicked before the 10-second poller has run.
+  const fetchTiffForStage = useCallback(async (
+    stageIndex: number,
+    metaSetter: (m: CombinedMeta) => void,
+    tiffCallback: ((buf: ArrayBuffer | null) => void) | undefined,
+    existingMeta: CombinedMeta,
+  ) => {
+    if (!tiffCallback) return;
+    let meta = existingMeta;
+    if (!meta) {
+      try {
+        const r = await fetch(`${BACKEND}/analysis/phase-raster-meta/${stageIndex}`);
+        if (r.ok) {
+          meta = await r.json();
+          if (meta) { metaSetter(meta); onActiveCombinedMetaChange?.(meta); }
+        }
+      } catch { /* ignore */ }
+    }
+    if (!meta) { return; } // no saved raster for this stage
+    try {
+      const r = await fetch(`${BACKEND}/analysis/phase-raster-tiff/${stageIndex}`);
+      tiffCallback(r.ok ? await r.arrayBuffer() : null);
+    } catch { tiffCallback(null); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [onActiveCombinedMetaChange]);
 
-  // Fetch tiff only when Combined Output is toggled ON, or when the raster itself changed
+  // Fetch tiff when Combined Output is toggled ON or when the saved raster changes
   useEffect(() => {
     const active = aviralCriteria.includes(COMBINED_LABEL);
-    const wasActive = aviralActiveRef.current;
     aviralActiveRef.current = active;
-    if (!onCombinedTiffChange) return;
-    if (!active || !combinedMeta) {
-      if (!active) onCombinedTiffChange(null);
-      return;
-    }
-    // Only re-fetch if we just toggled on OR the raster changed (combinedMeta ref already guards this)
-    if (!active && wasActive) { onCombinedTiffChange(null); return; }
-    fetch(`${BACKEND}/analysis/phase-raster-tiff/0`)
-      .then((r) => (r.ok ? r.arrayBuffer() : null))
-      .then((buf) => onCombinedTiffChange(buf ?? null))
-      .catch(() => onCombinedTiffChange(null));
+    if (!active) { onCombinedTiffChange?.(null); return; }
+    void fetchTiffForStage(0, setCombinedMeta, onCombinedTiffChange, combinedMeta);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aviralCriteria, combinedMeta]);
 
   useEffect(() => {
     const active = nirmalCriteria.includes(COMBINED_LABEL);
-    const wasActive = nirmalActiveRef.current;
     nirmalActiveRef.current = active;
-    if (!onNirmalCombinedTiffChange) return;
-    if (!active || !nirmalCombinedMeta) {
-      if (!active) onNirmalCombinedTiffChange(null);
-      return;
-    }
-    if (!active && wasActive) { onNirmalCombinedTiffChange(null); return; }
-    fetch(`${BACKEND}/analysis/phase-raster-tiff/1`)
-      .then((r) => (r.ok ? r.arrayBuffer() : null))
-      .then((buf) => onNirmalCombinedTiffChange(buf ?? null))
-      .catch(() => onNirmalCombinedTiffChange(null));
+    if (!active) { onNirmalCombinedTiffChange?.(null); return; }
+    void fetchTiffForStage(1, setNirmalCombinedMeta, onNirmalCombinedTiffChange, nirmalCombinedMeta);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nirmalCriteria, nirmalCombinedMeta]);
 
-  // Jan Ganga — stage index 2
-  useEffect(() => {
-    let cancelled = false;
-    const load = () => {
-      fetch(`${BACKEND}/analysis/phase-raster-meta/2`)
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => {
-          if (cancelled) return;
-          const meta = d as CombinedMeta;
-          const gen = meta?.generated_at ?? null;
-          if (gen !== janGenRef.current) { janGenRef.current = gen; setJanCombinedMeta(meta ?? null); }
-        })
-        .catch(() => {});
-    };
-    load();
-    const interval = setInterval(load, 10000);
-    return () => { cancelled = true; clearInterval(interval); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   useEffect(() => {
     const active = janCriteria.includes(COMBINED_LABEL);
-    const wasActive = janActiveRef.current;
     janActiveRef.current = active;
-    if (!onJanCombinedTiffChange) return;
-    if (!active || !janCombinedMeta) { if (!active) onJanCombinedTiffChange(null); return; }
-    if (!active && wasActive) { onJanCombinedTiffChange(null); return; }
-    fetch(`${BACKEND}/analysis/phase-raster-tiff/2`)
-      .then((r) => (r.ok ? r.arrayBuffer() : null))
-      .then((buf) => onJanCombinedTiffChange(buf ?? null))
-      .catch(() => onJanCombinedTiffChange(null));
+    if (!active) { onJanCombinedTiffChange?.(null); return; }
+    void fetchTiffForStage(2, setJanCombinedMeta, onJanCombinedTiffChange, janCombinedMeta);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [janCriteria, janCombinedMeta]);
 
-  // Arth Ganga — stage index 3
-  useEffect(() => {
-    let cancelled = false;
-    const load = () => {
-      fetch(`${BACKEND}/analysis/phase-raster-meta/3`)
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => {
-          if (cancelled) return;
-          const meta = d as CombinedMeta;
-          const gen = meta?.generated_at ?? null;
-          if (gen !== arthGenRef.current) { arthGenRef.current = gen; setArthCombinedMeta(meta ?? null); }
-        })
-        .catch(() => {});
-    };
-    load();
-    const interval = setInterval(load, 10000);
-    return () => { cancelled = true; clearInterval(interval); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   useEffect(() => {
     const active = arthCriteria.includes(COMBINED_LABEL);
-    const wasActive = arthActiveRef.current;
     arthActiveRef.current = active;
-    if (!onArthCombinedTiffChange) return;
-    if (!active || !arthCombinedMeta) { if (!active) onArthCombinedTiffChange(null); return; }
-    if (!active && wasActive) { onArthCombinedTiffChange(null); return; }
-    fetch(`${BACKEND}/analysis/phase-raster-tiff/3`)
-      .then((r) => (r.ok ? r.arrayBuffer() : null))
-      .then((buf) => onArthCombinedTiffChange(buf ?? null))
-      .catch(() => onArthCombinedTiffChange(null));
+    if (!active) { onArthCombinedTiffChange?.(null); return; }
+    void fetchTiffForStage(3, setArthCombinedMeta, onArthCombinedTiffChange, arthCombinedMeta);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [arthCriteria, arthCombinedMeta]);
+
+  useEffect(() => {
+    const active = gyanCriteria.includes(COMBINED_LABEL);
+    gyanActiveRef.current = active;
+    if (!active) { onGyanCombinedTiffChange?.(null); return; }
+    void fetchTiffForStage(4, setGyanCombinedMeta, onGyanCombinedTiffChange, gyanCombinedMeta);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gyanCriteria, gyanCombinedMeta]);
+
+  useEffect(() => {
+    const active = jeevantCriteria.includes(COMBINED_LABEL);
+    jeevantActiveRef.current = active;
+    if (!active) { onJeevantCombinedTiffChange?.(null); return; }
+    void fetchTiffForStage(5, setJeevantCombinedMeta, onJeevantCombinedTiffChange, jeevantCombinedMeta);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jeevantCriteria, jeevantCombinedMeta]);
 
   const allZonesSelected = zones.length > 0 && zones.every((z) => selectedZones.includes(z));
   const [showToolsSection, setShowToolsSection] = useState(false);
@@ -477,7 +469,7 @@ export default function SplitMasterPanel({
         }}
       >
         {/* Right column — Zone selector + Modules + Criteria, absolutely positioned */}
-        <div className="absolute top-0.5 right-4 flex flex-col items-end gap-2" style={{ maxWidth: activeModule === "Aviral Ganga" ? 260 : activeModule === "Nirmal Ganga" ? 260 : activeModule === "Jan Ganga" ? 260 : activeModule === "Arth Ganga" ? 260 : activeModule === "STP Suitability" ? 160 : 140, maxHeight: 560, overflowY: "auto" }}>
+        <div className="absolute top-0.5 right-4 flex flex-col items-end gap-2" style={{ maxWidth: activeModule === "Aviral Ganga" ? 260 : activeModule === "Nirmal Ganga" ? 260 : activeModule === "Jan Ganga" ? 260 : activeModule === "Arth Ganga" ? 260 : activeModule === "Gyan Ganga" ? 260 : activeModule === "Jeevant Ganga" ? 260 : activeModule === "STP Suitability" ? 160 : 140 }}>
 
           {/* ── Zone selector ── */}
           <div className="w-full" ref={zoneDropdownRef}>
@@ -755,11 +747,117 @@ export default function SplitMasterPanel({
               </div>
             )}
 
+            {/* Gyan Ganga criteria panel */}
+            {activeModule === "Gyan Ganga" && (
+              <div style={{ flexShrink: 1, minWidth: 0, maxWidth: 130 }}>
+                <p style={{ margin: "0 0 4px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#22d3ee99" }}>Criteria</p>
+                {selectedZones.length === 0 ? (
+                  <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(34,211,238,0.15)", borderRadius: 7, padding: "7px 10px" }}>
+                    <span style={{ fontSize: 9, color: "#64748b", fontStyle: "italic" }}>Select zones first</span>
+                  </div>
+                ) : (
+                  <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(34,211,238,0.2)", borderRadius: 7, padding: "3px 5px", display: "flex", flexDirection: "column", gap: 2 }}>
+                    {GYAN_CRITERIA.map((criterion) => (
+                      <label key={criterion} style={{ display: "flex", alignItems: "flex-start", gap: 6, cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={gyanCriteria.includes(criterion)}
+                          onChange={() => {
+                            const withoutCombined = gyanCriteria.filter((c: string) => c !== COMBINED_LABEL);
+                            const next = withoutCombined.includes(criterion)
+                              ? withoutCombined.filter((c: string) => c !== criterion)
+                              : [...withoutCombined, criterion];
+                            onGyanCriteriaChange?.(next);
+                          }}
+                          style={{ accentColor: "#22d3ee", width: 10, height: 10, flexShrink: 0, marginTop: 1 }}
+                        />
+                        <span style={{ fontSize: 9, color: "#cbd5e1", lineHeight: 1.3 }}>{criterion}</span>
+                      </label>
+                    ))}
+                    {gyanCombinedMeta && (
+                      <label style={{ display: "flex", alignItems: "flex-start", gap: 6, cursor: "pointer", marginTop: 3, paddingTop: 3, borderTop: "1px solid rgba(34,211,238,0.2)" }}>
+                        <input
+                          type="checkbox"
+                          checked={gyanCriteria.includes(COMBINED_LABEL)}
+                          onChange={() => {
+                            const next = gyanCriteria.includes(COMBINED_LABEL)
+                              ? gyanCriteria.filter((c: string) => c !== COMBINED_LABEL)
+                              : [COMBINED_LABEL];
+                            onGyanCriteriaChange?.(next);
+                          }}
+                          style={{ accentColor: "#34d399", width: 10, height: 10, flexShrink: 0, marginTop: 1 }}
+                        />
+                        <span style={{ fontSize: 9, color: "#34d399", lineHeight: 1.3, fontWeight: 700 }}>
+                          ⬡ {COMBINED_LABEL}
+                          <span style={{ display: "block", fontSize: 8, fontWeight: 400, color: "#94a3b8" }}>
+                            {gyanCombinedMeta.criteria.length} criteria · from Holistic
+                          </span>
+                        </span>
+                      </label>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Jeevant Ganga criteria panel */}
+            {activeModule === "Jeevant Ganga" && (
+              <div style={{ flexShrink: 1, minWidth: 0, maxWidth: 130 }}>
+                <p style={{ margin: "0 0 4px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#4ade8099" }}>Criteria</p>
+                {selectedZones.length === 0 ? (
+                  <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(74,222,128,0.15)", borderRadius: 7, padding: "7px 10px" }}>
+                    <span style={{ fontSize: 9, color: "#64748b", fontStyle: "italic" }}>Select zones first</span>
+                  </div>
+                ) : (
+                  <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(74,222,128,0.2)", borderRadius: 7, padding: "3px 5px", display: "flex", flexDirection: "column", gap: 2 }}>
+                    {JEEVANT_CRITERIA.map((criterion) => (
+                      <label key={criterion} style={{ display: "flex", alignItems: "flex-start", gap: 6, cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={jeevantCriteria.includes(criterion)}
+                          onChange={() => {
+                            const withoutCombined = jeevantCriteria.filter((c: string) => c !== COMBINED_LABEL);
+                            const next = withoutCombined.includes(criterion)
+                              ? withoutCombined.filter((c: string) => c !== criterion)
+                              : [...withoutCombined, criterion];
+                            onJeevantCriteriaChange?.(next);
+                          }}
+                          style={{ accentColor: "#4ade80", width: 10, height: 10, flexShrink: 0, marginTop: 1 }}
+                        />
+                        <span style={{ fontSize: 9, color: "#cbd5e1", lineHeight: 1.3 }}>{criterion}</span>
+                      </label>
+                    ))}
+                    {jeevantCombinedMeta && (
+                      <label style={{ display: "flex", alignItems: "flex-start", gap: 6, cursor: "pointer", marginTop: 3, paddingTop: 3, borderTop: "1px solid rgba(74,222,128,0.2)" }}>
+                        <input
+                          type="checkbox"
+                          checked={jeevantCriteria.includes(COMBINED_LABEL)}
+                          onChange={() => {
+                            const next = jeevantCriteria.includes(COMBINED_LABEL)
+                              ? jeevantCriteria.filter((c: string) => c !== COMBINED_LABEL)
+                              : [COMBINED_LABEL];
+                            onJeevantCriteriaChange?.(next);
+                          }}
+                          style={{ accentColor: "#34d399", width: 10, height: 10, flexShrink: 0, marginTop: 1 }}
+                        />
+                        <span style={{ fontSize: 9, color: "#34d399", lineHeight: 1.3, fontWeight: 700 }}>
+                          ⬡ {COMBINED_LABEL}
+                          <span style={{ display: "block", fontSize: 8, fontWeight: 400, color: "#94a3b8" }}>
+                            {jeevantCombinedMeta.criteria.length} criteria · from Holistic
+                          </span>
+                        </span>
+                      </label>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Modules — always on the right */}
-            <div style={{ flexShrink: 0 }}>
+            <div style={{ flexShrink: 0, minWidth: 0 }}>
               <p style={{ margin: "0 0 4px", textAlign: "right", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#60a5fa99" }}>Modules</p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 170, overflowY: "auto", overflowX: "hidden", paddingRight: 2, scrollbarWidth: "thin", scrollbarColor: "rgba(96,165,250,0.3) transparent" }}>
-                {(["Aviral Ganga", "Nirmal Ganga", "Jan Ganga", "Arth Ganga", "STP Suitability"] as const).map((moduleName) => (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, height: "120px", overflowY: "scroll", overflowX: "hidden", paddingBottom: 4 }} className="split-modules-scroll">
+                {(["Aviral Ganga", "Nirmal Ganga", "Jan Ganga", "Arth Ganga", "Gyan Ganga", "Jeevant Ganga", "STP Suitability"] as const).map((moduleName) => (
                   <button
                     key={moduleName}
                     type="button"
@@ -774,6 +872,10 @@ export default function SplitMasterPanel({
                           ? "bg-emerald-500/20 text-emerald-200 ring-1 ring-emerald-400/40"
                           : moduleName === "Arth Ganga"
                           ? "bg-orange-500/20 text-orange-200 ring-1 ring-orange-400/40"
+                          : moduleName === "Gyan Ganga"
+                          ? "bg-cyan-500/20 text-cyan-200 ring-1 ring-cyan-400/40"
+                          : moduleName === "Jeevant Ganga"
+                          ? "bg-green-500/20 text-green-200 ring-1 ring-green-400/40"
                           : "bg-sky-500/20 text-sky-200 ring-1 ring-sky-400/40"
                         : "bg-white/5 text-slate-300 ring-1 ring-white/5 hover:bg-white/10 hover:text-white"
                     }`}
@@ -787,7 +889,7 @@ export default function SplitMasterPanel({
         </div>
 
         {/* Left content — padded right to stay clear of the absolute right column */}
-        <div style={{ paddingRight: activeModule === "Aviral Ganga" ? 270 : activeModule === "Nirmal Ganga" ? 270 : activeModule === "Jan Ganga" ? 270 : activeModule === "Arth Ganga" ? 270 : activeModule === "STP Suitability" ? 170 : 150 }}>
+        <div style={{ paddingRight: activeModule === "Aviral Ganga" ? 270 : activeModule === "Nirmal Ganga" ? 270 : activeModule === "Jan Ganga" ? 270 : activeModule === "Arth Ganga" ? 270 : activeModule === "Gyan Ganga" ? 270 : activeModule === "Jeevant Ganga" ? 270 : activeModule === "STP Suitability" ? 170 : 150 }}>
 
         {/* Row 1: Screens — single toggle + expand */}
         {(() => {

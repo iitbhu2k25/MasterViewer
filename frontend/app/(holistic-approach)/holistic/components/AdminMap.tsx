@@ -3,7 +3,10 @@ import L from "leaflet";
 import { GeoJSON, MapContainer, TileLayer, useMap, useMapEvents, WMSTileLayer, ZoomControl } from "react-leaflet";
 import type { FeatureCollection, StickyNote, BasemapType } from "../../../shared/types";
 import { BASEMAP_TILES } from "../../../shared/types";
-import DrainWFSLayer from "../../../shared/map-layers/DrainWFSLayer";
+import { RiverFlowWMSLayer, DrainFlowWMSLayer, ChannelGeometryWMSLayer } from "../../../shared/map-layers/AviralFlowWMSLayers";
+import { ArthAgricultureLayer, ArthIrrigationLayer, ArthTourismLayer, ArthGhatsLayer, ArthEconomicLayer } from "../../../shared/map-layers/ArthGangaRasterLayers";
+import { GyanBaselineLayer, GyanGisDataLayer, GyanSwatLayer, GyanHydrogeologyLayer, GyanSensorLayer } from "../../../shared/map-layers/GyanGangaRasterLayers";
+import { JeevantWetlandsLayer, JeevantRiparianLayer, JeevantBiodiversityLayer, JeevantFloodplainLayer } from "../../../shared/map-layers/JeevantGangaRasterLayers";
 import DemSlopeRasterLayer from "../../../shared/map-layers/DemSlopeRasterLayer";
 import FlowDirectionRasterLayer from "../../../shared/map-layers/FlowDirectionRasterLayer";
 import NirmalGwqLayer from "../../../shared/map-layers/NirmalGwqLayer";
@@ -556,9 +559,6 @@ type Props = {
   stickyMode?: boolean;
   onStickyMapClick?: (lat: number, lng: number) => void;
   activeCriteria?: string[];
-  riverFlowSubbasins?: number[];
-  riverFlowGeojson?: any | null;
-  riverFlowRecords?: any[];
   industrialGeojson?: any | null;
   gramPanchayatGeojson?: any | null;
   populationGeojson?: any | null;
@@ -599,9 +599,6 @@ export default function AdminMap({
   stickyMode = false,
   onStickyMapClick,
   activeCriteria = [],
-  riverFlowSubbasins = [],
-  riverFlowGeojson = null,
-  riverFlowRecords = [],
   industrialGeojson = null,
   gramPanchayatGeojson = null,
   populationGeojson = null,
@@ -918,66 +915,8 @@ export default function AdminMap({
             zIndex={510 + i}
           />
         ))}
-        {activeCriteria.includes("River flow") && riverFlowGeojson?.features?.length > 0 && (
-          <GeoJSON
-            key={`river-flow-geojson-${riverFlowSubbasins.join(",")}`}
-            data={riverFlowGeojson}
-            style={(feature: any) => {
-              const sub = feature?.properties?.Subbasin;
-              const records = riverFlowRecords.filter((r: any) => r.Subbasin === sub);
-              const avgFlow = records.length
-                ? records.reduce((s: number, r: any) => s + (r.flow_in_cm ?? 0), 0) / records.length
-                : 0;
-              // Color scale: blue shades by flow intensity
-              const maxFlow = 1.5;
-              const t = Math.min(avgFlow / maxFlow, 1);
-              const r = Math.round(29 + (147 - 29) * (1 - t));
-              const g = Math.round(78 + (210 - 78) * (1 - t));
-              const b = Math.round(216 + (234 - 216) * (1 - t));
-              return {
-                fillColor: `rgb(${r},${g},${b})`,
-                fillOpacity: 0.7,
-                color: "#1e3a8a",
-                weight: 1.5,
-              };
-            }}
-            onEachFeature={(feature: any, layer: any) => {
-              const sub = feature?.properties?.Subbasin;
-              const subLabel = feature?.properties?.SUB ?? sub;
-              const records = riverFlowRecords.filter((r: any) => r.Subbasin === sub);
-              if (!records.length) return;
-              const rows = records.map((r: any) =>
-                `<tr style="border-bottom:1px solid #e2e8f0">
-                  <td style="padding:2px 6px">${r.year}</td>
-                  <td style="padding:2px 6px">${r.month}</td>
-                  <td style="padding:2px 6px;text-align:right">${r.flow_in_cm?.toFixed(4) ?? "-"}</td>
-                  <td style="padding:2px 6px;text-align:right">${r.flow_out_c?.toFixed(4) ?? "-"}</td>
-                </tr>`
-              ).join("");
-              const popup = `
-                <div style="font-family:sans-serif;font-size:12px;min-width:240px;max-height:220px;overflow:auto">
-                  <div style="font-weight:700;font-size:13px;margin-bottom:4px;color:#1e3a8a">
-                    Subbasin ${sub} (${subLabel})
-                  </div>
-                  <div style="font-size:11px;color:#475569;margin-bottom:4px">
-                    Area: <strong>${records[0]?.area_km2?.toFixed(2) ?? "-"} km²</strong>
-                  </div>
-                  <table style="width:100%;border-collapse:collapse;font-size:11px">
-                    <thead>
-                      <tr style="background:#dbeafe">
-                        <th style="padding:2px 6px;text-align:left">Year</th>
-                        <th style="padding:2px 6px;text-align:left">Month</th>
-                        <th style="padding:2px 6px;text-align:right">Flow In (cm)</th>
-                        <th style="padding:2px 6px;text-align:right">Flow Out (cm)</th>
-                      </tr>
-                    </thead>
-                    <tbody>${rows}</tbody>
-                  </table>
-                </div>`;
-              layer.bindPopup(popup, { maxWidth: 320 });
-            }}
-          />
-        )}
+        <RiverFlowWMSLayer enabled={activeCriteria.includes("River flow")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+        <ChannelGeometryWMSLayer enabled={activeCriteria.includes("Channel geometry (width, depth)")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
         {activeCriteria.includes("Population (urban/rural)") && populationGeojson?.features?.length > 0 && (
           <GeoJSON
             key={`population-${populationGeojson.features.length}`}
@@ -1080,9 +1019,7 @@ export default function AdminMap({
             }}
           />
         )}
-        {activeCriteria.includes("Tributary & drain flow") && (
-          <DrainWFSLayer areaGeojson={areaGeojson} selectedZones={selectedZones} />
-        )}
+        <DrainFlowWMSLayer enabled={activeCriteria.includes("Tributary & drain flow")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
         {activeCriteria.includes("Groundwater quality") && (
           <NirmalGwqLayer enabled={true} selectedZones={selectedZones} clipApiBase={clipApiBase} />
         )}
@@ -1101,6 +1038,20 @@ export default function AdminMap({
         {activeCriteria.includes("Surface flow direction & accumulation maps") && (
           <FlowDirectionRasterLayer enabled={true} selectedZones={selectedZones} clipApiBase={clipApiBase} dataType="direction" />
         )}
+        <ArthAgricultureLayer enabled={activeCriteria.includes("Agriculture (crop area, water demand)")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+        <ArthIrrigationLayer enabled={activeCriteria.includes("Irrigation dependency")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+        <ArthTourismLayer enabled={activeCriteria.includes("Tourism & cultural nodes")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+        <ArthGhatsLayer enabled={activeCriteria.includes("Ghats & heritage sites")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+        <ArthEconomicLayer enabled={activeCriteria.includes("Economic activity zones")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+        <GyanBaselineLayer enabled={activeCriteria.includes("All baseline datasets")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+        <GyanGisDataLayer enabled={activeCriteria.includes("Remote sensing + GIS maps")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+        <GyanSwatLayer enabled={activeCriteria.includes("SWAT model outputs")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+        <GyanHydrogeologyLayer enabled={activeCriteria.includes("Hydrogeology (aquifer, MAR, paleo-channels)")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+        <GyanSensorLayer enabled={activeCriteria.includes("Monitoring stations & sensors")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+        <JeevantWetlandsLayer enabled={activeCriteria.includes("Wetlands, ponds, lakes")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+        <JeevantRiparianLayer enabled={activeCriteria.includes("Riparian vegetation")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+        <JeevantBiodiversityLayer enabled={activeCriteria.includes("Biodiversity (fish, birds, invasive species)")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
+        <JeevantFloodplainLayer enabled={activeCriteria.includes("Floodplain & habitat data")} selectedZones={selectedZones} clipApiBase={clipApiBase} />
         <RainfallRasterLayer enabled={showRainfallLayer} selectedZones={selectedZones} rainfallYear={rainfallYear} clipApiBase={clipApiBase} />
         <AviralRasterLayer tiff={aviralTiff} />
         {interactive ? <ZoomControl position="topright" /> : null}

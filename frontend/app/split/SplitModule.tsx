@@ -32,27 +32,41 @@ export type SplitSession = {
   startedAt: number;
   lastActivityAt: number;
   marks: SplitMark[];
-  /** all zones ever selected during session */
   zones: string[];
-  /** zones active at session end — used for restore */
   activeZones: string[];
-  /** criteria active at any point */
   criteria: string[];
-  /** criteria active at session end — used for restore */
   activeCriteria: string[];
   basemap: string;
-  /** full sticky note state snapshot — used for "Go to Session" restore */
   stickyNotes: StickyNote[];
-  /** all messages sent/received during this session */
   messages: ViewerMessage[];
-  /** custom screen names keyed by side */
   screenNames?: Record<string, string>;
+  // Full restore fields
+  visibleScreens?: Record<string, boolean>;
+  activeModule?: string;
+  viewerScale?: number;
+  mapView?: { center: [number, number]; zoom: number } | null;
+  nirmalCriteria?: string[];
+  janCriteria?: string[];
+  arthCriteria?: string[];
+  gyanCriteria?: string[];
+  jeevantCriteria?: string[];
+  masterCollapsed?: boolean;
 };
 
 const SESSIONS_KEY = "split_sessions";
 export const RESTORE_SESSION_KEY = "split_restore_session";
 
+const BACKEND_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:9000";
+
 function saveSession(session: SplitSession) {
+  // Save to backend (permanent) and keep localStorage as fallback cache
+  try {
+    fetch(`${BACKEND_BASE}/sessions/save`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(session),
+    }).catch(() => {});
+  } catch { /* ignore */ }
   try {
     const raw = localStorage.getItem(SESSIONS_KEY);
     const all: SplitSession[] = raw ? JSON.parse(raw) : [];
@@ -114,7 +128,12 @@ export default function SplitModule() {
   const [janCombinedTiff, setJanCombinedTiff] = useState<ArrayBuffer | null>(null);
   const [arthCriteria, setArthCriteria] = useState<string[]>([]);
   const [arthCombinedTiff, setArthCombinedTiff] = useState<ArrayBuffer | null>(null);
-  const [activeModule, setActiveModule] = useState<"Aviral Ganga" | "Nirmal Ganga" | "Jan Ganga" | "Arth Ganga" | "STP Suitability">("Aviral Ganga");
+  const [gyanCriteria, setGyanCriteria] = useState<string[]>([]);
+  const [gyanCombinedTiff, setGyanCombinedTiff] = useState<ArrayBuffer | null>(null);
+  const [jeevantCriteria, setJeevantCriteria] = useState<string[]>([]);
+  const [jeevantCombinedTiff, setJeevantCombinedTiff] = useState<ArrayBuffer | null>(null);
+  const [activeModule, setActiveModule] = useState<"Aviral Ganga" | "Nirmal Ganga" | "Jan Ganga" | "Arth Ganga" | "Gyan Ganga" | "Jeevant Ganga" | "STP Suitability">("Aviral Ganga");
+  const [activeCombinedMeta, setActiveCombinedMeta] = useState<{ stage_name: string; criteria: string[]; weights: Record<string, number>; generated_at: number } | null>(null);
   const [mainStpLayers,     setMainStpLayers]     = useState<Record<string, STPWmsLayer | null>>({});
   const [mainStpAreaLayers, setMainStpAreaLayers] = useState<Record<string, STPWmsLayer | null>>({});
   const [stpResetKey, setStpResetKey] = useState(0);
@@ -230,12 +249,20 @@ export default function SplitModule() {
     basemap: "terrain",
     stickyNotes: [],
     messages: [],
+    visibleScreens: { top: false, topSecondary: false, left: false, right: false, bottom: false },
+    activeModule: "Aviral Ganga",
+    viewerScale: 0.75,
+    mapView: null,
+    nirmalCriteria: [],
+    janCriteria: [],
+    arthCriteria: [],
+    gyanCriteria: [],
+    jeevantCriteria: [],
+    masterCollapsed: false,
   });
 
-  // Track whether initial mount + restore is done before syncing state to session
   const mountedRef = useRef(false);
 
-  // Only save session when there's actual activity (marks, zones, or criteria)
   function hasActivity(s: SplitSession) {
     return s.marks.length > 0 || s.stickyNotes.length > 0;
   }
@@ -245,7 +272,7 @@ export default function SplitModule() {
   }
 
   useEffect(() => {
-    if (!mountedRef.current) return; // skip initial mount
+    if (!mountedRef.current) return;
     const s = sessionRef.current;
     const merged = Array.from(new Set([...s.zones, ...selectedZones]));
     sessionRef.current = { ...s, zones: merged, activeZones: selectedZones, lastActivityAt: Date.now() };
@@ -262,25 +289,82 @@ export default function SplitModule() {
 
   useEffect(() => {
     if (!mountedRef.current) return;
+    sessionRef.current = { ...sessionRef.current, nirmalCriteria, lastActivityAt: Date.now() };
+    persistIfActive(sessionRef.current);
+  }, [nirmalCriteria]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!mountedRef.current) return;
+    sessionRef.current = { ...sessionRef.current, janCriteria, lastActivityAt: Date.now() };
+    persistIfActive(sessionRef.current);
+  }, [janCriteria]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!mountedRef.current) return;
+    sessionRef.current = { ...sessionRef.current, arthCriteria, lastActivityAt: Date.now() };
+    persistIfActive(sessionRef.current);
+  }, [arthCriteria]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!mountedRef.current) return;
+    sessionRef.current = { ...sessionRef.current, gyanCriteria, lastActivityAt: Date.now() };
+    persistIfActive(sessionRef.current);
+  }, [gyanCriteria]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!mountedRef.current) return;
+    sessionRef.current = { ...sessionRef.current, jeevantCriteria, lastActivityAt: Date.now() };
+    persistIfActive(sessionRef.current);
+  }, [jeevantCriteria]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!mountedRef.current) return;
     sessionRef.current = { ...sessionRef.current, basemap, lastActivityAt: Date.now() };
     persistIfActive(sessionRef.current);
   }, [basemap]);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Keep stickyNotes snapshot in session — skip initial mount to avoid overwriting restored notes
+  useEffect(() => {
+    if (!mountedRef.current) return;
+    sessionRef.current = { ...sessionRef.current, visibleScreens, lastActivityAt: Date.now() };
+    persistIfActive(sessionRef.current);
+  }, [visibleScreens]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!mountedRef.current) return;
+    sessionRef.current = { ...sessionRef.current, activeModule, lastActivityAt: Date.now() };
+    persistIfActive(sessionRef.current);
+  }, [activeModule]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!mountedRef.current) return;
+    sessionRef.current = { ...sessionRef.current, viewerScale, lastActivityAt: Date.now() };
+    persistIfActive(sessionRef.current);
+  }, [viewerScale]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!mountedRef.current) return;
+    sessionRef.current = { ...sessionRef.current, mapView, lastActivityAt: Date.now() };
+    persistIfActive(sessionRef.current);
+  }, [mapView]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!mountedRef.current) return;
+    sessionRef.current = { ...sessionRef.current, masterCollapsed, lastActivityAt: Date.now() };
+    persistIfActive(sessionRef.current);
+  }, [masterCollapsed]);  // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!mountedRef.current) return;
     sessionRef.current = { ...sessionRef.current, stickyNotes, lastActivityAt: Date.now() };
     persistIfActive(sessionRef.current);
   }, [stickyNotes]);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Keep screenNames in session
   useEffect(() => {
     if (!mountedRef.current) return;
     sessionRef.current = { ...sessionRef.current, screenNames, lastActivityAt: Date.now() };
     persistIfActive(sessionRef.current);
   }, [screenNames]);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Keep messages snapshot in session
   useEffect(() => {
     if (!mountedRef.current) return;
     sessionRef.current = { ...sessionRef.current, messages: viewerMessages, lastActivityAt: Date.now() };
@@ -353,13 +437,21 @@ export default function SplitModule() {
         const s: SplitSession = JSON.parse(raw);
         if (s.stickyNotes?.length) setStickyNotes(s.stickyNotes);
         if (s.activeZones?.length) setSelectedZones(s.activeZones);
-        if (s.activeCriteria?.length) setAviralCriteria(s.activeCriteria);
         if (s.basemap) setBasemap(s.basemap as BasemapType);
         if (s.messages?.length) setViewerMessages(s.messages);
         if (s.screenNames) setScreenNames(s.screenNames);
-        // Show screen viewers if any viewer-side marks exist
-        const hasViewerMarks = s.marks?.some(m => m.viewerSide !== "main");
-        if (hasViewerMarks) setVisibleScreens({ top: true, topSecondary: true, left: true, right: true, bottom: true });
+        if (s.visibleScreens) setVisibleScreens(s.visibleScreens);
+        if (s.activeModule) setActiveModule(s.activeModule as typeof activeModule);
+        if (s.viewerScale) setViewerScale(s.viewerScale);
+        if (s.mapView) setMapView(s.mapView);
+        if (s.masterCollapsed !== undefined) setMasterCollapsed(s.masterCollapsed);
+        // Restore per-module criteria
+        if (s.activeCriteria?.length) setAviralCriteria(s.activeCriteria);
+        if (s.nirmalCriteria?.length) setNirmalCriteria(s.nirmalCriteria);
+        if (s.janCriteria?.length) setJanCriteria(s.janCriteria);
+        if (s.arthCriteria?.length) setArthCriteria(s.arthCriteria);
+        if (s.gyanCriteria?.length) setGyanCriteria(s.gyanCriteria);
+        if (s.jeevantCriteria?.length) setJeevantCriteria(s.jeevantCriteria);
         // Reuse same session so future marks append to it
         sessionRef.current = { ...s };
       }
@@ -382,6 +474,30 @@ export default function SplitModule() {
       document.body.classList.remove("holistic-fullscreen-mode");
     };
   }, []);
+
+  const activeCriteriaForModule =
+    activeModule === "Nirmal Ganga" ? nirmalCriteria :
+    activeModule === "Jan Ganga"   ? janCriteria :
+    activeModule === "Arth Ganga"  ? arthCriteria :
+    activeModule === "Gyan Ganga"  ? gyanCriteria :
+    activeModule === "Jeevant Ganga" ? jeevantCriteria :
+    aviralCriteria;
+
+  const activeTiffForModule =
+    activeModule === "Nirmal Ganga" ? nirmalCombinedTiff :
+    activeModule === "Jan Ganga"    ? janCombinedTiff :
+    activeModule === "Arth Ganga"   ? arthCombinedTiff :
+    activeModule === "Gyan Ganga"   ? gyanCombinedTiff :
+    activeModule === "Jeevant Ganga" ? jeevantCombinedTiff :
+    combinedTiff;
+
+  const setActiveTiffForModule =
+    activeModule === "Nirmal Ganga" ? setNirmalCombinedTiff :
+    activeModule === "Jan Ganga"    ? setJanCombinedTiff :
+    activeModule === "Arth Ganga"   ? setArthCombinedTiff :
+    activeModule === "Gyan Ganga"   ? setGyanCombinedTiff :
+    activeModule === "Jeevant Ganga" ? setJeevantCombinedTiff :
+    setCombinedTiff;
 
   // Dynamic offset: each top viewer is effectiveW*scale px wide; half + gap keeps them from overlapping
   const topBaseW = aviralCriteria.length > 0 ? Math.round(420 * 1.2) : 420;
@@ -436,8 +552,8 @@ export default function SplitModule() {
           basinGeojson={layerState.basin ? basinGeojson : null}
           selectedZoneGeojson={selectedZoneGeojson}
           analysisResult={null}
-          showRainfallLayer={(activeModule === "Nirmal Ganga" ? nirmalCriteria : activeModule === "Jan Ganga" ? janCriteria : activeModule === "Arth Ganga" ? arthCriteria : aviralCriteria).includes("Rainfall & runoff")}
-          showRechargeLayer={(activeModule === "Nirmal Ganga" ? nirmalCriteria : activeModule === "Jan Ganga" ? janCriteria : activeModule === "Arth Ganga" ? arthCriteria : aviralCriteria).includes("Groundwater recharge")}
+          showRainfallLayer={activeCriteriaForModule.includes("Rainfall & runoff")}
+          showRechargeLayer={activeCriteriaForModule.includes("Groundwater recharge")}
           rainfallYear={null}
           clipApiBase={backendBase}
           interactive={true}
@@ -454,11 +570,11 @@ export default function SplitModule() {
           viewerSide="main"
           stickyMode={masterStickyMode}
           onStickyMapClick={handleMasterMapClick}
-          activeCriteria={activeModule === "Nirmal Ganga" ? nirmalCriteria : activeModule === "Jan Ganga" ? janCriteria : activeModule === "Arth Ganga" ? arthCriteria : aviralCriteria}
+          activeCriteria={activeCriteriaForModule}
           screenNames={screenNames}
           stpWmsLayers={Object.values(mainStpLayers).filter(Boolean) as STPWmsLayer[]}
           stpAreaWmsLayers={Object.values(mainStpAreaLayers).filter(Boolean) as STPWmsLayer[]}
-          aviralTiff={activeModule === "Nirmal Ganga" ? nirmalCombinedTiff : activeModule === "Jan Ganga" ? janCombinedTiff : activeModule === "Arth Ganga" ? arthCombinedTiff : combinedTiff}
+          aviralTiff={activeTiffForModule}
         />
       </div>
 
@@ -506,7 +622,7 @@ export default function SplitModule() {
           onDeleteStickyNote={handleDeleteStickyNote}
           messages={viewerMessages}
           onSendMessage={(text) => handleSendMessage(viewer.side, viewer.title, text)}
-          activeCriteria={activeModule === "Nirmal Ganga" ? nirmalCriteria : activeModule === "Jan Ganga" ? janCriteria : activeModule === "Arth Ganga" ? arthCriteria : aviralCriteria}
+          activeCriteria={activeCriteriaForModule}
           clipApiBase={backendBase}
           revealedNotes={revealedNotes}
           onRevealNote={(noteId) => handleRevealNote(noteId, viewer.side)}
@@ -515,8 +631,9 @@ export default function SplitModule() {
           onSTPPresentToMain={(layer) => setMainStpLayers(prev => ({ ...prev, [viewer.side]: layer }))}
           onSTPAreaPresentToMain={(layer) => setMainStpAreaLayers(prev => ({ ...prev, [viewer.side]: layer }))}
           stpResetKey={stpResetKey}
-          combinedTiff={activeModule === "Nirmal Ganga" ? nirmalCombinedTiff : activeModule === "Jan Ganga" ? janCombinedTiff : activeModule === "Arth Ganga" ? arthCombinedTiff : combinedTiff}
-          onCombinedTiffUpdate={activeModule === "Nirmal Ganga" ? setNirmalCombinedTiff : activeModule === "Jan Ganga" ? setJanCombinedTiff : activeModule === "Arth Ganga" ? setArthCombinedTiff : setCombinedTiff}
+          moduleTiff={activeTiffForModule}
+          combinedMeta={activeCombinedMeta}
+          onPresentToMain={setActiveTiffForModule}
         />
       ))}
 
@@ -553,6 +670,12 @@ export default function SplitModule() {
         arthCriteria={arthCriteria}
         onArthCriteriaChange={setArthCriteria}
         onArthCombinedTiffChange={setArthCombinedTiff}
+        gyanCriteria={gyanCriteria}
+        onGyanCriteriaChange={setGyanCriteria}
+        onGyanCombinedTiffChange={setGyanCombinedTiff}
+        jeevantCriteria={jeevantCriteria}
+        onJeevantCriteriaChange={setJeevantCriteria}
+        onJeevantCombinedTiffChange={setJeevantCombinedTiff}
         activeModule={activeModule}
         onActiveModuleChange={(mod) => {
           if (mod !== "STP Suitability") handleResetAllSTP();
@@ -560,9 +683,13 @@ export default function SplitModule() {
           if (mod !== "Nirmal Ganga") setNirmalCriteria([]);
           if (mod !== "Jan Ganga") setJanCriteria([]);
           if (mod !== "Arth Ganga") setArthCriteria([]);
+          if (mod !== "Gyan Ganga") setGyanCriteria([]);
+          if (mod !== "Jeevant Ganga") setJeevantCriteria([]);
           setActiveModule(mod);
+          setActiveCombinedMeta(null);
         }}
         onResetAllSTP={handleResetAllSTP}
+        onActiveCombinedMetaChange={setActiveCombinedMeta}
       />
     </div>
   );

@@ -31,6 +31,7 @@ export type SplitSession = {
 
 const SESSIONS_KEY = "split_sessions";
 const RESTORE_SESSION_KEY = "split_restore_session";
+const BACKEND_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:9000";
 
 const SIDE_ACCENT: Record<string, string> = {
   main: "#6366f1", top: "#d97706", topSecondary: "#e11d48",
@@ -163,10 +164,26 @@ export default function SplitActivityPanel() {
 
   useEffect(() => {
     const load = () => {
-      try {
-        const raw = localStorage.getItem(SESSIONS_KEY);
-        if (raw) setSessions(JSON.parse(raw));
-      } catch { /* ignore */ }
+      // Try backend first, fall back to localStorage
+      fetch(`${BACKEND_BASE}/sessions/list`)
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => {
+          if (d?.sessions?.length) {
+            setSessions(d.sessions);
+          } else {
+            // fallback to localStorage
+            try {
+              const raw = localStorage.getItem(SESSIONS_KEY);
+              if (raw) setSessions(JSON.parse(raw));
+            } catch { /* ignore */ }
+          }
+        })
+        .catch(() => {
+          try {
+            const raw = localStorage.getItem(SESSIONS_KEY);
+            if (raw) setSessions(JSON.parse(raw));
+          } catch { /* ignore */ }
+        });
     };
     load();
     window.addEventListener("storage", load);
@@ -185,7 +202,10 @@ export default function SplitActivityPanel() {
   const handleDeleteSession = (sessionId: string) => {
     const next = sessions.filter((s) => s.sessionId !== sessionId);
     setSessions(next);
-    localStorage.setItem(SESSIONS_KEY, JSON.stringify(next));
+    // Delete from backend
+    fetch(`${BACKEND_BASE}/sessions/delete/${encodeURIComponent(sessionId)}`, { method: "DELETE" }).catch(() => {});
+    // Also remove from localStorage cache
+    try { localStorage.setItem(SESSIONS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
     if (selected?.sessionId === sessionId) setSelected(null);
   };
 

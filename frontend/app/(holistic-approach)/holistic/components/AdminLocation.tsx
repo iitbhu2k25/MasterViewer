@@ -1,6 +1,7 @@
 import { ZoneOption } from "../types/location";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { STAGE_CONFIGS, STAGE_RASTER_CRITERIA } from "../../../shared/criteria-configs";
+import { WeightSliderCard } from "../../../split/components/CriteriaDataPanel";
 
 // Re-export so HolisticModule can import from here
 export { STAGE_CONFIGS };
@@ -66,6 +67,8 @@ export default function AdminLocation({
 }: Props) {
   const [zoneOpen, setZoneOpen] = useState(false);
   const zoneRef = useRef<HTMLDivElement | null>(null);
+  const [lockedWeights, setLockedWeights] = useState<Record<string, boolean>>({});
+  const toggleWeightLock = (c: string) => setLockedWeights((p) => ({ ...p, [c]: !p[c] }));
 
   useEffect(() => {
     const onClickOutside = (event: MouseEvent) => {
@@ -321,78 +324,119 @@ export default function AdminLocation({
 
           {/* ── Phase weight panel ── */}
           {showAviralPanel && selectedDataUsed.length > 0 && (
-            <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-3">
-              <p className="mb-1 text-sm font-bold text-sky-900">Adjust Criteria Weights</p>
-              <p className="mb-3 text-xs text-slate-500">Move a slider to set influence. The % shown is each criterion's share of the total.</p>
-              <div className="space-y-1.5">
+            <div className="mt-4" style={{ borderRadius: 12, border: "1.5px solid #e2e8f0", background: "#f8fafc", overflow: "hidden" }}>
+              {/* Header */}
+              <div style={{ padding: "8px 12px", background: "#fff", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#0f172a" }}>Selected Categories</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 20, padding: "1px 8px", color: "#475569" }}>
+                    {selectedDataUsed.length}/{selectedDataUsed.length}
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+                  {/* Lock all toggle */}
+                  {(() => {
+                    const allLocked = selectedDataUsed.length > 0 && selectedDataUsed.every((c) => lockedWeights[c]);
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = !allLocked;
+                          const m: Record<string, boolean> = {};
+                          selectedDataUsed.forEach((c) => { m[c] = next; });
+                          setLockedWeights(m);
+                        }}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 4,
+                          padding: "3px 9px", borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: "pointer",
+                          border: `1.5px solid ${allLocked ? "#94a3b8" : "#10b981"}`,
+                          background: allLocked ? "#f1f5f9" : "#ecfdf5",
+                          color: allLocked ? "#64748b" : "#059669",
+                        }}
+                      >
+                        {allLocked ? (
+                          <svg width="9" height="9" viewBox="0 0 14 16" fill="none"><rect x="2" y="7" width="10" height="8" rx="2" stroke="#94a3b8" strokeWidth="1.8"/><path d="M4.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="#94a3b8" strokeWidth="1.8" strokeLinecap="round"/></svg>
+                        ) : (
+                          <svg width="9" height="9" viewBox="0 0 14 16" fill="none"><rect x="2" y="7" width="10" height="8" rx="2" stroke="#10b981" strokeWidth="1.8"/><path d="M4.5 7V5a2.5 2.5 0 0 1 5 0" stroke="#10b981" strokeWidth="1.8" strokeLinecap="round"/></svg>
+                        )}
+                        {allLocked ? "Locked" : "Unlocked"}
+                      </button>
+                    );
+                  })()}
+                  <button type="button" onClick={() => setLockedWeights({})} style={{ padding: "3px 9px", borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: "pointer", border: "1.5px solid #e2e8f0", background: "#fff", color: "#475569" }}>Reset</button>
+                </div>
+              </div>
+
+              {/* Slider cards */}
+              <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: 8 }}>
                 {(() => {
-                  const totalW = selectedDataUsed.reduce((s, c) => s + (criteriaWeights[c] ?? 5), 0);
+                  const totalW = selectedDataUsed.reduce((s, c) => s + (criteriaWeights[c] ?? 5), 0) || 1;
                   return selectedDataUsed.map((criterion) => {
                     const val = criteriaWeights[criterion] ?? 5;
-                    const pct = totalW > 0 ? Math.round((val / totalW) * 100) : 0;
                     return (
-                      <div key={criterion}>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[11px] font-medium text-slate-700 leading-tight truncate">{criterion}</span>
-                          <div className="flex shrink-0 items-center gap-1">
-                            <span className="rounded bg-sky-100 px-1 py-0 text-[10px] font-semibold text-sky-700">{val}</span>
-                            <span className="rounded bg-sky-600 px-1 py-0 text-[10px] font-bold text-white">{pct}%</span>
-                          </div>
-                        </div>
-                        <input
-                          type="range"
-                          min={1}
-                          max={10}
-                          step={1}
-                          value={val}
-                          onChange={(e) => onWeightChange?.(criterion, Number(e.target.value))}
-                          className="w-full h-1 accent-sky-600"
-                        />
-                      </div>
+                      <WeightSliderCard
+                        key={criterion}
+                        criterion={criterion}
+                        value={val}
+                        normalizedWeight={val / totalW}
+                        locked={!!lockedWeights[criterion]}
+                        checked={true}
+                        onToggleCheck={() => {}}
+                        onToggleLock={() => toggleWeightLock(criterion)}
+                        onChange={(v) => !lockedWeights[criterion] && onWeightChange?.(criterion, v)}
+                      />
                     );
                   });
                 })()}
-              </div>
 
-              {(() => {
-                const rasterCriteria = STAGE_RASTER_CRITERIA[stageIndex] ?? [];
-                const hasRasterMatch = selectedDataUsed.some((c) => rasterCriteria.includes(c));
-                if (!hasRasterMatch) {
+                {/* Generate */}
+                {(() => {
+                  const rasterCriteria = STAGE_RASTER_CRITERIA[stageIndex] ?? [];
+                  const hasRasterMatch = selectedDataUsed.some((c) => rasterCriteria.includes(c));
+                  if (!hasRasterMatch) {
+                    return (
+                      <p style={{ fontSize: 11, color: "#64748b", background: "#f1f5f9", borderRadius: 6, padding: "8px 10px", textAlign: "center" }}>
+                        Raster analysis not yet available for the selected criteria.
+                      </p>
+                    );
+                  }
                   return (
-                    <p className="mt-3 rounded bg-slate-100 px-2 py-2 text-xs text-slate-500 text-center">
-                      Raster analysis not yet available for the selected criteria.
-                    </p>
-                  );
-                }
-                return (
-                  <>
-                    {suitabilityError && (
-                      <p className="mt-2 rounded bg-red-50 px-2 py-1 text-xs text-red-700">{suitabilityError}</p>
-                    )}
-                    <button
-                      type="button"
-                      onClick={onGenerateSuitability}
-                      disabled={suitabilityLoading || selectedZones.length === 0}
-                      className="mt-3 w-full rounded-lg bg-sky-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                    >
-                      {suitabilityLoading ? "Generating…" : "Generate"}
-                    </button>
-                    {suitabilityReady && (
+                    <>
+                      {suitabilityError && (
+                        <p style={{ fontSize: 11, color: "#dc2626", background: "#fef2f2", borderRadius: 6, padding: "6px 8px" }}>{suitabilityError}</p>
+                      )}
                       <button
                         type="button"
-                        onClick={onToggleSuitabilityOnMap}
-                        className={`mt-2 w-full rounded-lg px-3 py-2 text-sm font-semibold transition ${
-                          showSuitabilityOnMap
-                            ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                            : "border border-emerald-500 bg-white text-emerald-700 hover:bg-emerald-50"
-                        }`}
+                        onClick={onGenerateSuitability}
+                        disabled={suitabilityLoading || selectedZones.length === 0}
+                        style={{
+                          width: "100%", padding: "9px 0", fontSize: 13, fontWeight: 700, borderRadius: 8,
+                          background: suitabilityLoading || !selectedZones.length ? "#cbd5e1" : "#0369a1",
+                          color: "#fff", border: "none", cursor: suitabilityLoading ? "wait" : "pointer",
+                          boxShadow: suitabilityLoading || !selectedZones.length ? "none" : "0 2px 8px rgba(3,105,161,0.25)",
+                        }}
                       >
-                        {showSuitabilityOnMap ? "✓ Shown on Map" : "Show on Map"}
+                        {suitabilityLoading ? "Generating…" : "Generate"}
                       </button>
-                    )}
-                  </>
-                );
-              })()}
+                      {suitabilityReady && (
+                        <button
+                          type="button"
+                          onClick={onToggleSuitabilityOnMap}
+                          style={{
+                            width: "100%", padding: "9px 0", fontSize: 13, fontWeight: 700, borderRadius: 8,
+                            background: showSuitabilityOnMap ? "#059669" : "#fff",
+                            color: showSuitabilityOnMap ? "#fff" : "#059669",
+                            border: "1.5px solid #10b981",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {showSuitabilityOnMap ? "✓ Shown on Map" : "Show on Map"}
+                        </button>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
             </div>
           )}
         </div>

@@ -4,6 +4,9 @@
 // Keep in sync with backend/holistic/views.py _build_phase_raster_map().
 export const STAGE_RASTER_CRITERIA: Record<number, string[]> = {
   0: [
+    "River flow (monthly)",
+    "Tributary & drain flow",
+    "Channel geometry (width, depth)",
     "Rainfall & runoff",
     "Groundwater recharge",
     "DEM, slope maps",
@@ -13,7 +16,27 @@ export const STAGE_RASTER_CRITERIA: Record<number, string[]> = {
     "River water quality (BOD, DO, COD, pH, Turbidity)",
     "Groundwater quality",
   ],
-  // Stages 2–5: add criteria here once raster files are placed on the server
+  3: [
+    "Agriculture (crop area, water demand)",
+    "Irrigation dependency",
+    "Tourism & cultural nodes",
+    "Ghats & heritage sites",
+    "Economic activity zones",
+  ],
+  4: [
+    "All baseline datasets",
+    "Remote sensing + GIS maps",
+    "SWAT model outputs",
+    "Hydrogeology (aquifer, MAR, paleo-channels)",
+    "Monitoring stations & sensors",
+  ],
+  5: [
+    "Wetlands, ponds, lakes",
+    "Riparian vegetation",
+    "Biodiversity (fish, birds, invasive species)",
+    "Floodplain & habitat data",
+  ],
+  // Stage 2: add criteria here once raster files are placed on the server
 };
 
 export type StageConfig = {

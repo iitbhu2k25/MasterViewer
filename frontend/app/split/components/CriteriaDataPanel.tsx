@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   CartesianGrid, Line, LineChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { DRAIN_CONFIGS } from "../../shared/map-layers/DrainWFSLayer";
 
 const ZONE_PALETTE = ["#2563eb","#059669","#dc2626","#d97706","#7c3aed","#db2777","#0284c7","#0f766e"];
 
@@ -36,16 +35,6 @@ function Table({ children }: { children: React.ReactNode }) {
   );
 }
 
-/* ─── Flag SVG (matches DrainWFSLayer icon) ───────────────────────────── */
-function FlagIcon({ color }: { color: string }) {
-  return (
-    <svg width="14" height="18" viewBox="0 0 22 32" style={{ flexShrink: 0 }}>
-      <line x1="3.5" y1="1" x2="3.5" y2="32" stroke={color} strokeWidth="2.2" strokeLinecap="round" />
-      <polygon points="3.5,2 21,9 3.5,16" fill={color} opacity="0.93" />
-      <circle cx="3.5" cy="32" r="2.2" fill={color} opacity="0.8" />
-    </svg>
-  );
-}
 
 /* ─── Rainfall recharts line chart — one line per zone, year on x-axis ─── */
 function RainfallLineChart({ data }: { data: any }) {
@@ -222,9 +211,66 @@ function GroundwaterSection({ selectedZones }: { selectedZones: string[] }) {
   );
 }
 
-/* ─── Tributary & Drain section ────────────────────────────────────────── */
-function TributarySection({ selectedZones }: { selectedZones: string[] }) {
-  const [data, setData] = useState<any>(null);
+/* ─── River Flow zonal stats section ──────────────────────────────────── */
+function RiverFlowSection({ selectedZones }: { selectedZones: string[] }) {
+  const [stats, setStats] = useState<Record<string, { mean: number | null; min: number | null; max: number | null }> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const zonesKey = selectedZones.join(",");
+
+  useEffect(() => {
+    if (!selectedZones.length) return;
+    setLoading(true); setError("");
+    fetch(`${BACKEND}/analysis/river-flow`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selected_zones: selectedZones }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.river_flow?.by_zone) setStats(d.river_flow.by_zone);
+        else setError(d?.detail || "No data returned");
+      })
+      .catch((e) => setError(e.message || "Failed"))
+      .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zonesKey]);
+
+  return (
+    <div style={{ marginTop: 8, borderRadius: 8, border: "1px solid #bfdbfe", background: "#eff6ff", padding: "8px 10px" }}>
+      <p style={{ margin: "0 0 6px", fontSize: 10, fontWeight: 700, color: "#1e3a8a" }}>River Flow — Zonal Stats (dss_raster:river_flow_1)</p>
+      {loading ? <Spin /> : error ? <Err msg={error} /> : null}
+      {!loading && !error && stats && (
+        <div style={{ overflowX: "auto", borderRadius: 4, border: "1px solid #bfdbfe", background: "#fff" }}>
+          <Table>
+            <thead>
+              <tr style={{ background: "#dbeafe" }}>
+                <th style={{ padding: "2px 6px", textAlign: "left", fontSize: 9, fontWeight: 700, borderBottom: "1px solid #bfdbfe" }}>Zone</th>
+                <th style={{ padding: "2px 6px", textAlign: "right", fontSize: 9, fontWeight: 700, borderBottom: "1px solid #bfdbfe" }}>Mean</th>
+                <th style={{ padding: "2px 6px", textAlign: "right", fontSize: 9, fontWeight: 700, borderBottom: "1px solid #bfdbfe" }}>Min</th>
+                <th style={{ padding: "2px 6px", textAlign: "right", fontSize: 9, fontWeight: 700, borderBottom: "1px solid #bfdbfe" }}>Max</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(stats).map(([zone, s], i) => (
+                <tr key={zone} style={{ background: i % 2 === 0 ? "#fff" : "#eff6ff" }}>
+                  <td style={{ padding: "2px 6px", fontSize: 9, fontWeight: 600, borderBottom: "1px solid #e2e8f0" }}>{zone}</td>
+                  <td style={{ padding: "2px 6px", fontSize: 9, textAlign: "right", borderBottom: "1px solid #e2e8f0" }}>{s.mean != null ? s.mean.toFixed(4) : "—"}</td>
+                  <td style={{ padding: "2px 6px", fontSize: 9, textAlign: "right", borderBottom: "1px solid #e2e8f0" }}>{s.min != null ? s.min.toFixed(4) : "—"}</td>
+                  <td style={{ padding: "2px 6px", fontSize: 9, textAlign: "right", borderBottom: "1px solid #e2e8f0" }}>{s.max != null ? s.max.toFixed(4) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Drain Flow zonal stats section ──────────────────────────────────── */
+function DrainFlowSection({ selectedZones }: { selectedZones: string[] }) {
+  const [stats, setStats] = useState<Record<string, { mean: number | null; min: number | null; max: number | null }> | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const zonesKey = selectedZones.join(",");
@@ -238,49 +284,100 @@ function TributarySection({ selectedZones }: { selectedZones: string[] }) {
       body: JSON.stringify({ selected_zones: selectedZones }),
     })
       .then((r) => r.json())
-      .then((d) => setData(d?.tributary_drain))
+      .then((d) => {
+        if (d?.drain_flow?.by_zone) setStats(d.drain_flow.by_zone);
+        else setError(d?.detail || "No data returned");
+      })
       .catch((e) => setError(e.message || "Failed"))
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zonesKey]);
 
   return (
-    <div>
-      <T>Tributary & Drain Flow</T>
-
-
-
+    <div style={{ marginTop: 8, borderRadius: 8, border: "1px solid #99f6e4", background: "#f0fdfa", padding: "8px 10px" }}>
+      <p style={{ margin: "0 0 6px", fontSize: 10, fontWeight: 700, color: "#134e4a" }}>Drain Flow — Zonal Stats (dss_raster:drain_flow_1)</p>
       {loading ? <Spin /> : error ? <Err msg={error} /> : null}
-      {!loading && !error && data?.layers?.length ? (
-        <Table>
-          <thead>
-            <tr>
-              <Th>Layer</Th>
-              <Th right>Total</Th>
-              {selectedZones.map((z) => <Th key={z} right>{z}</Th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {data.layers.map((row: any) => {
-              const cfg = DRAIN_CONFIGS.find((c) => c.typeName.endsWith(row.layer) || c.key === row.layer);
-              return (
-                <tr key={row.layer}>
-                  <td style={{ padding: "2px 5px", borderBottom: "1px solid #e2e8f0", whiteSpace: "nowrap" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                      {cfg && <FlagIcon color={cfg.color} />}
-                      <span style={{ fontSize: 8 }}>{row.label || row.layer}</span>
-                    </div>
-                  </td>
-                  <Td>{row.error ? "N/A" : row.intersecting_features}</Td>
-                  {selectedZones.map((z) => (
-                    <Td key={z}>{row.error ? "-" : (row.by_zone?.[z] ?? 0)}</Td>
-                  ))}
+      {!loading && !error && stats && (
+        <div style={{ overflowX: "auto", borderRadius: 4, border: "1px solid #99f6e4", background: "#fff" }}>
+          <Table>
+            <thead>
+              <tr style={{ background: "#ccfbf1" }}>
+                <th style={{ padding: "2px 6px", textAlign: "left", fontSize: 9, fontWeight: 700, borderBottom: "1px solid #99f6e4" }}>Zone</th>
+                <th style={{ padding: "2px 6px", textAlign: "right", fontSize: 9, fontWeight: 700, borderBottom: "1px solid #99f6e4" }}>Mean</th>
+                <th style={{ padding: "2px 6px", textAlign: "right", fontSize: 9, fontWeight: 700, borderBottom: "1px solid #99f6e4" }}>Min</th>
+                <th style={{ padding: "2px 6px", textAlign: "right", fontSize: 9, fontWeight: 700, borderBottom: "1px solid #99f6e4" }}>Max</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(stats).map(([zone, s], i) => (
+                <tr key={zone} style={{ background: i % 2 === 0 ? "#fff" : "#f0fdfa" }}>
+                  <td style={{ padding: "2px 6px", fontSize: 9, fontWeight: 600, borderBottom: "1px solid #e2e8f0" }}>{zone}</td>
+                  <td style={{ padding: "2px 6px", fontSize: 9, textAlign: "right", borderBottom: "1px solid #e2e8f0" }}>{s.mean != null ? s.mean.toFixed(4) : "—"}</td>
+                  <td style={{ padding: "2px 6px", fontSize: 9, textAlign: "right", borderBottom: "1px solid #e2e8f0" }}>{s.min != null ? s.min.toFixed(4) : "—"}</td>
+                  <td style={{ padding: "2px 6px", fontSize: 9, textAlign: "right", borderBottom: "1px solid #e2e8f0" }}>{s.max != null ? s.max.toFixed(4) : "—"}</td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </Table>
-      ) : null}
+              ))}
+            </tbody>
+          </Table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Channel Geometry zonal stats section ─────────────────────────────── */
+function ChannelGeomSection({ selectedZones }: { selectedZones: string[] }) {
+  const [stats, setStats] = useState<Record<string, { mean: number | null; min: number | null; max: number | null }> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const zonesKey = selectedZones.join(",");
+
+  useEffect(() => {
+    if (!selectedZones.length) return;
+    setLoading(true); setError("");
+    fetch(`${BACKEND}/analysis/channel-geometry`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selected_zones: selectedZones }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.channel_geometry?.by_zone) setStats(d.channel_geometry.by_zone);
+        else setError(d?.detail || "No data returned");
+      })
+      .catch((e) => setError(e.message || "Failed"))
+      .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zonesKey]);
+
+  return (
+    <div style={{ marginTop: 8, borderRadius: 8, border: "1px solid #c7d2fe", background: "#eef2ff", padding: "8px 10px" }}>
+      <p style={{ margin: "0 0 6px", fontSize: 10, fontWeight: 700, color: "#3730a3" }}>Channel Geometry — Zonal Stats (dss_raster:channel_1)</p>
+      {loading ? <Spin /> : error ? <Err msg={error} /> : null}
+      {!loading && !error && stats && (
+        <div style={{ overflowX: "auto", borderRadius: 4, border: "1px solid #c7d2fe", background: "#fff" }}>
+          <Table>
+            <thead>
+              <tr style={{ background: "#e0e7ff" }}>
+                <th style={{ padding: "2px 6px", textAlign: "left", fontSize: 9, fontWeight: 700, borderBottom: "1px solid #c7d2fe" }}>Zone</th>
+                <th style={{ padding: "2px 6px", textAlign: "right", fontSize: 9, fontWeight: 700, borderBottom: "1px solid #c7d2fe" }}>Mean</th>
+                <th style={{ padding: "2px 6px", textAlign: "right", fontSize: 9, fontWeight: 700, borderBottom: "1px solid #c7d2fe" }}>Min</th>
+                <th style={{ padding: "2px 6px", textAlign: "right", fontSize: 9, fontWeight: 700, borderBottom: "1px solid #c7d2fe" }}>Max</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(stats).map(([zone, s], i) => (
+                <tr key={zone} style={{ background: i % 2 === 0 ? "#fff" : "#eef2ff" }}>
+                  <td style={{ padding: "2px 6px", fontSize: 9, fontWeight: 600, borderBottom: "1px solid #e2e8f0" }}>{zone}</td>
+                  <td style={{ padding: "2px 6px", fontSize: 9, textAlign: "right", borderBottom: "1px solid #e2e8f0" }}>{s.mean != null ? s.mean.toFixed(4) : "—"}</td>
+                  <td style={{ padding: "2px 6px", fontSize: 9, textAlign: "right", borderBottom: "1px solid #e2e8f0" }}>{s.min != null ? s.min.toFixed(4) : "—"}</td>
+                  <td style={{ padding: "2px 6px", fontSize: 9, textAlign: "right", borderBottom: "1px solid #e2e8f0" }}>{s.max != null ? s.max.toFixed(4) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        </div>
+      )}
     </div>
   );
 }
@@ -652,6 +749,19 @@ const MODULE_CRITERIA: Record<string, string[]> = {
     "Ghats & heritage sites",
     "Economic activity zones",
   ],
+  "Gyan Ganga": [
+    "All baseline datasets",
+    "Remote sensing + GIS maps",
+    "SWAT model outputs",
+    "Hydrogeology (aquifer, MAR, paleo-channels)",
+    "Monitoring stations & sensors",
+  ],
+  "Jeevant Ganga": [
+    "Wetlands, ponds, lakes",
+    "Riparian vegetation",
+    "Biodiversity (fish, birds, invasive species)",
+    "Floodplain & habitat data",
+  ],
 };
 
 /* Criteria that can produce a raster per stage (matches STAGE_RASTER_CRITERIA) */
@@ -666,8 +776,27 @@ const RASTER_CRITERIA: Record<string, string[]> = {
     "River water quality (BOD, DO, COD, pH, Turbidity)",
     "Groundwater quality",
   ],
-  "Jan Ganga": [],  // no raster criteria defined yet for stage 2
-  "Arth Ganga": [], // no raster criteria defined yet for stage 3
+  "Jan Ganga": [],
+  "Arth Ganga": [
+    "Agriculture (crop area, water demand)",
+    "Irrigation dependency",
+    "Tourism & cultural nodes",
+    "Ghats & heritage sites",
+    "Economic activity zones",
+  ],
+  "Gyan Ganga": [
+    "All baseline datasets",
+    "Remote sensing + GIS maps",
+    "SWAT model outputs",
+    "Hydrogeology (aquifer, MAR, paleo-channels)",
+    "Monitoring stations & sensors",
+  ],
+  "Jeevant Ganga": [
+    "Wetlands, ponds, lakes",
+    "Riparian vegetation",
+    "Biodiversity (fish, birds, invasive species)",
+    "Floodplain & habitat data",
+  ],
 };
 
 /* ─── Population section ──────────────────────────────────────────────── */
@@ -788,53 +917,185 @@ function GramPanchayatSection({ selectedZones }: { selectedZones: string[] }) {
   );
 }
 
+/* ─── Shared weight slider card (used in both /split and /holistic) ─────── */
+export function WeightSliderCard({
+  criterion,
+  value,
+  normalizedWeight,
+  locked,
+  checked,
+  onToggleCheck,
+  onToggleLock,
+  onChange,
+}: {
+  criterion: string;
+  value: number;
+  normalizedWeight: number;
+  locked: boolean;
+  checked: boolean;
+  onToggleCheck: () => void;
+  onToggleLock: () => void;
+  onChange: (v: number) => void;
+}) {
+  const pct = ((value - 1) / 9) * 100;
+  return (
+    <div style={{
+      background: "#fff",
+      border: "1.5px solid #e2e8f0",
+      borderRadius: 12,
+      padding: "10px 12px 8px",
+      boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+      overflow: "visible",
+    }}>
+      {/* Top row */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        {/* Checkbox */}
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={onToggleCheck}
+          style={{ accentColor: "#10b981", width: 14, height: 14, flexShrink: 0, cursor: "pointer" }}
+        />
+        {/* Lock button */}
+        <button
+          type="button"
+          onClick={onToggleLock}
+          title={locked ? "Unlock" : "Lock"}
+          style={{
+            flexShrink: 0, width: 20, height: 20, borderRadius: 5, cursor: "pointer",
+            border: `1.5px solid ${locked ? "#94a3b8" : "#10b981"}`,
+            background: locked ? "#f1f5f9" : "#ecfdf5",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          {locked ? (
+            <svg width="9" height="10" viewBox="0 0 14 16" fill="none">
+              <rect x="2" y="7" width="10" height="8" rx="2" stroke="#94a3b8" strokeWidth="1.8"/>
+              <path d="M4.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="#94a3b8" strokeWidth="1.8" strokeLinecap="round"/>
+            </svg>
+          ) : (
+            <svg width="9" height="10" viewBox="0 0 14 16" fill="none">
+              <rect x="2" y="7" width="10" height="8" rx="2" stroke="#10b981" strokeWidth="1.8"/>
+              <path d="M4.5 7V5a2.5 2.5 0 0 1 5 0" stroke="#10b981" strokeWidth="1.8" strokeLinecap="round"/>
+            </svg>
+          )}
+        </button>
+        {/* Name */}
+        <span style={{ flex: 1, fontSize: 11, fontWeight: 600, color: checked ? "#1e293b" : "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {criterion}
+        </span>
+        {/* Weight badge */}
+        <span style={{
+          flexShrink: 0, fontSize: 10, fontWeight: 700,
+          border: "1.5px solid #bae6fd", borderRadius: 6,
+          padding: "1px 7px", color: "#0369a1", background: "#f0f9ff",
+          letterSpacing: "0.02em",
+        }}>
+          Weight&nbsp;&nbsp;<span style={{ fontWeight: 800 }}>{normalizedWeight.toFixed(4)}</span>
+        </span>
+      </div>
+
+      {/* Slider row */}
+      <div style={{ position: "relative", paddingTop: 10, paddingBottom: 18 }}>
+        {/* Gradient track bg */}
+        <div style={{
+          position: "absolute", top: 16, left: 0, right: 0, height: 8, borderRadius: 4,
+          background: "linear-gradient(90deg, #ef4444 0%, #f97316 25%, #facc15 50%, #84cc16 75%, #22c55e 100%)",
+          opacity: checked ? 1 : 0.3,
+        }} />
+        {/* Value bubble */}
+        <div style={{
+          position: "absolute",
+          top: 6,
+          left: `calc(${pct}% - 12px)`,
+          width: 24, height: 24, borderRadius: "50%",
+          background: checked ? "#10b981" : "#94a3b8",
+          border: "3px solid #fff",
+          boxShadow: "0 2px 6px rgba(0,0,0,0.18)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          pointerEvents: "none",
+          zIndex: 2,
+          transition: "left 0.05s",
+        }}>
+          <span style={{ fontSize: 8, fontWeight: 800, color: "#fff", lineHeight: 1 }}>{value}</span>
+        </div>
+        {/* Native range overlaid */}
+        <input
+          type="range" min={1} max={10} step={1} value={value}
+          disabled={locked || !checked}
+          onChange={(e) => onChange(Number(e.target.value))}
+          style={{
+            position: "absolute", top: 10, left: 0, width: "100%", height: 20,
+            opacity: 0, cursor: locked || !checked ? "not-allowed" : "pointer",
+            zIndex: 3, margin: 0,
+          }}
+        />
+        {/* Min / Max labels */}
+        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, display: "flex", justifyContent: "space-between" }}>
+          <span style={{ fontSize: 9, color: "#94a3b8" }}>1 Least</span>
+          <span style={{ fontSize: 9, color: "#94a3b8" }}>10 Most</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type CombinedMeta = { stage_name: string; criteria: string[]; weights: Record<string, number>; generated_at: number } | null;
+
 /* ─── Combined Output weight panel ────────────────────────────────────── */
 function CombinedWeightPanel({
   selectedZones,
   backendBase,
   activeModule,
-  onCombinedTiffUpdate,
+  combinedMeta,
+  onViewerTiffUpdate,
+  onPresentToMain,
 }: {
   selectedZones: string[];
   backendBase: string;
-  activeModule: "Aviral Ganga" | "Nirmal Ganga" | "Jan Ganga" | "Arth Ganga" | "STP Suitability";
-  onCombinedTiffUpdate?: (tiff: ArrayBuffer) => void;
+  activeModule: "Aviral Ganga" | "Nirmal Ganga" | "Jan Ganga" | "Arth Ganga" | "Gyan Ganga" | "Jeevant Ganga" | "STP Suitability";
+  combinedMeta?: CombinedMeta;
+  onViewerTiffUpdate?: (tiff: ArrayBuffer | null) => void;
+  onPresentToMain?: (tiff: ArrayBuffer) => void;
 }) {
-  const stageIndex = activeModule === "Nirmal Ganga" ? 1 : activeModule === "Jan Ganga" ? 2 : activeModule === "Arth Ganga" ? 3 : 0;
+  const stageIndex = activeModule === "Nirmal Ganga" ? 1 : activeModule === "Jan Ganga" ? 2 : activeModule === "Arth Ganga" ? 3 : activeModule === "Gyan Ganga" ? 4 : activeModule === "Jeevant Ganga" ? 5 : 0;
   const allCriteria = MODULE_CRITERIA[activeModule] ?? [];
   const rasterCriteria = RASTER_CRITERIA[activeModule] ?? [];
 
   const [selected, setSelected] = useState<string[]>([]);
   const [weights, setWeights] = useState<Record<string, number>>({});
+  const [locked, setLocked] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // Local tiff — only shown on this viewer's map until user clicks "Show on Main Map"
+  const [localTiff, setLocalTiff] = useState<ArrayBuffer | null>(null);
+  const [shownOnMain, setShownOnMain] = useState(false);
 
-  // Pre-populate from last holistic run on mount
+  // When meta arrives from /holistic, pre-seed selected criteria + raw weights
+  const seededMetaRef = useRef<number | null>(null);
   useEffect(() => {
-    fetch(`${backendBase}/analysis/phase-raster-meta/${stageIndex}`)
-      .then((r) => r.ok ? r.json() : null)
-      .then((d) => {
-        if (!d) return;
-        if (Array.isArray(d.criteria) && d.criteria.length > 0) setSelected(d.criteria);
-        if (d.weights && typeof d.weights === "object") {
-          // weights in meta are normalised (0–1), convert back to 1–10 scale for sliders
-          const raw = d.weights as Record<string, number>;
-          const max = Math.max(...Object.values(raw));
-          const scaled = Object.fromEntries(
-            Object.entries(raw).map(([k, v]) => [k, max > 0 ? Math.round((v / max) * 9) + 1 : 5])
-          );
-          setWeights(scaled);
-        }
-      })
-      .catch(() => {});
+    if (!combinedMeta) return;
+    if (seededMetaRef.current === combinedMeta.generated_at) return;
+    seededMetaRef.current = combinedMeta.generated_at;
+    const vals = Object.values(combinedMeta.weights);
+    const maxVal = Math.max(...vals, 0.0001);
+    const rescaled: Record<string, number> = {};
+    for (const [c, w] of Object.entries(combinedMeta.weights)) {
+      rescaled[c] = Math.max(1, Math.min(10, Math.round((w / maxVal) * 9) + 1));
+    }
+    setSelected(combinedMeta.criteria.filter((c) => allCriteria.includes(c)));
+    setWeights(rescaled);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [combinedMeta]);
 
   const toggleCriterion = (c: string) =>
     setSelected((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
+  const toggleLock = (c: string) =>
+    setLocked((prev) => ({ ...prev, [c]: !prev[c] }));
 
+  const allLocked = selected.length > 0 && selected.every((c) => locked[c]);
+  const totalW = selected.reduce((s, c) => s + (weights[c] ?? 5), 0) || 1;
   const hasRaster = selected.some((c) => rasterCriteria.includes(c));
-  const totalW = selected.reduce((s, c) => s + (weights[c] ?? 5), 0);
 
   const handleGenerate = async () => {
     if (!selectedZones.length || !selected.length) return;
@@ -848,21 +1109,21 @@ function CombinedWeightPanel({
         body: JSON.stringify({ stage_index: stageIndex, selected_zones: selectedZones, criteria_weights: normalised }),
       });
       if (!res.ok) { setError("Generation failed"); return; }
-      const blob = await res.blob();
+      const buf = await res.arrayBuffer();
 
+      // Save meta to backend so other viewers can read it
       const fd = new FormData();
-      fd.append("tiff", blob, `phase_raster_${stageIndex}.tif`);
+      fd.append("tiff", new Blob([buf], { type: "image/tiff" }), `phase_raster_${stageIndex}.tif`);
       fd.append("stage_index", String(stageIndex));
       fd.append("stage_name", activeModule);
       fd.append("criteria", JSON.stringify(selected));
       fd.append("weights", JSON.stringify(normalised));
       await fetch(`${backendBase}/analysis/save-phase-raster`, { method: "POST", body: fd });
 
-      const tiffRes = await fetch(`${backendBase}/analysis/phase-raster-tiff/${stageIndex}`);
-      if (tiffRes.ok) {
-        const buf = await tiffRes.arrayBuffer();
-        onCombinedTiffUpdate?.(buf);
-      }
+      // Show only on this viewer's map — user must click "Show on Main Map" explicitly
+      setLocalTiff(buf);
+      setShownOnMain(false);
+      onViewerTiffUpdate?.(buf);
     } catch (e: any) {
       setError(e.message || "Error");
     } finally {
@@ -870,78 +1131,325 @@ function CombinedWeightPanel({
     }
   };
 
+
+
   if (!allCriteria.length) return null;
 
   return (
-    <div style={{ borderRadius: 8, border: "1px solid #bae6fd", background: "#f0f9ff", padding: "8px" }}>
-      {/* Criteria checkboxes */}
-      <p style={{ margin: "0 0 5px", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#0369a1" }}>Select criteria to proceed</p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 8 }}>
-        {allCriteria.map((c) => (
-          <label key={c} style={{ display: "flex", alignItems: "flex-start", gap: 5, cursor: "pointer" }}>
-            <input
-              type="checkbox"
-              checked={selected.includes(c)}
-              onChange={() => toggleCriterion(c)}
-              style={{ accentColor: "#0369a1", marginTop: 1, flexShrink: 0 }}
-            />
-            <span style={{ fontSize: 8, color: "#334155", lineHeight: 1.4 }}>{c}</span>
-          </label>
-        ))}
+    <div style={{ borderRadius: 12, border: "1.5px solid #e2e8f0", background: "#f8fafc", overflow: "hidden" }}>
+      {/* Header */}
+      <div style={{ padding: "8px 12px", background: "#fff", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#0f172a" }}>Selected Categories</span>
+          <span style={{ fontSize: 10, fontWeight: 700, background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 20, padding: "1px 8px", color: "#475569" }}>
+            {selected.length}/{allCriteria.length}
+          </span>
+        </div>
+        <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+          <button
+            type="button"
+            onClick={() => {
+              const next = !allLocked;
+              const m: Record<string, boolean> = {};
+              selected.forEach((c) => { m[c] = next; });
+              setLocked(m);
+            }}
+            style={{
+              display: "flex", alignItems: "center", gap: 4,
+              padding: "3px 9px", borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: "pointer",
+              border: `1.5px solid ${allLocked ? "#94a3b8" : "#10b981"}`,
+              background: allLocked ? "#f1f5f9" : "#ecfdf5",
+              color: allLocked ? "#64748b" : "#059669",
+            }}
+          >
+            {allLocked ? (
+              <svg width="9" height="9" viewBox="0 0 14 16" fill="none"><rect x="2" y="7" width="10" height="8" rx="2" stroke="#94a3b8" strokeWidth="1.8"/><path d="M4.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="#94a3b8" strokeWidth="1.8" strokeLinecap="round"/></svg>
+            ) : (
+              <svg width="9" height="9" viewBox="0 0 14 16" fill="none"><rect x="2" y="7" width="10" height="8" rx="2" stroke="#10b981" strokeWidth="1.8"/><path d="M4.5 7V5a2.5 2.5 0 0 1 5 0" stroke="#10b981" strokeWidth="1.8" strokeLinecap="round"/></svg>
+            )}
+            {allLocked ? "Locked" : "Unlocked"}
+          </button>
+          <button type="button" onClick={() => setSelected(allCriteria.slice())} style={{ padding: "3px 9px", borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: "pointer", border: "1.5px solid #e2e8f0", background: "#fff", color: "#475569" }}>Select All</button>
+          <button type="button" onClick={() => { setSelected([]); setLocked({}); setLocalTiff(null); onViewerTiffUpdate?.(null); }} style={{ padding: "3px 9px", borderRadius: 20, fontSize: 10, fontWeight: 700, cursor: "pointer", border: "1.5px solid #ef4444", background: "#ef4444", color: "#fff" }}>Clear</button>
+          <button type="button" onClick={() => setWeights({})} style={{ padding: "3px 9px", borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: "pointer", border: "1.5px solid #e2e8f0", background: "#fff", color: "#475569" }}>Reset</button>
+        </div>
       </div>
 
-      {/* Weight sliders — only when something is selected */}
-      {selected.length > 0 && (
-        <>
-          <div style={{ borderTop: "1px solid #bae6fd", paddingTop: 6, marginBottom: 6 }}>
-            <p style={{ margin: "0 0 4px", fontSize: 9, fontWeight: 700, color: "#0369a1" }}>Adjust Criteria Weights</p>
-            <p style={{ margin: "0 0 5px", fontSize: 8, color: "#64748b" }}>Move a slider to set influence. The % shown is each criterion's share of the total.</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-              {selected.map((c) => {
-                const val = weights[c] ?? 5;
-                const pct = totalW > 0 ? Math.round((val / totalW) * 100) : 0;
-                return (
-                  <div key={c}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4 }}>
-                      <span style={{ fontSize: 8, fontWeight: 600, color: "#334155", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{c}</span>
-                      <div style={{ display: "flex", flexShrink: 0, alignItems: "center", gap: 3 }}>
-                        <span style={{ fontSize: 8, fontWeight: 700, background: "#e0f2fe", color: "#0369a1", borderRadius: 3, padding: "0 3px" }}>{val}</span>
-                        <span style={{ fontSize: 8, fontWeight: 700, background: "#0369a1", color: "#fff", borderRadius: 3, padding: "0 3px" }}>{pct}%</span>
-                      </div>
-                    </div>
-                    <input
-                      type="range" min={1} max={10} step={1} value={val}
-                      onChange={(e) => setWeights((prev) => ({ ...prev, [c]: Number(e.target.value) }))}
-                      style={{ width: "100%", height: 3, accentColor: "#0369a1" }}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+      {/* Slider cards */}
+      <div style={{ padding: "10px 10px", display: "flex", flexDirection: "column", gap: 8 }}>
+        {allCriteria.map((c) => {
+          const val = weights[c] ?? 5;
+          const normW = val / totalW;
+          return (
+            <WeightSliderCard
+              key={c}
+              criterion={c}
+              value={val}
+              normalizedWeight={normW}
+              locked={!!locked[c]}
+              checked={selected.includes(c)}
+              onToggleCheck={() => toggleCriterion(c)}
+              onToggleLock={() => toggleLock(c)}
+              onChange={(v) => setWeights((prev) => ({ ...prev, [c]: v }))}
+            />
+          );
+        })}
 
-          {!hasRaster ? (
-            <p style={{ fontSize: 8, color: "#64748b", background: "#f1f5f9", borderRadius: 4, padding: "4px 6px", textAlign: "center" }}>
-              Raster analysis not yet available for the selected criteria.
-            </p>
-          ) : (
-            <>
-              {error && <p style={{ fontSize: 8, color: "#dc2626", marginBottom: 4 }}>{error}</p>}
-              <button
-                type="button"
-                disabled={loading || selectedZones.length === 0}
-                onClick={handleGenerate}
-                style={{
-                  width: "100%", padding: "5px 0", fontSize: 9, fontWeight: 700,
-                  background: loading || !selectedZones.length ? "#cbd5e1" : "#0369a1",
-                  color: "#fff", border: "none", borderRadius: 6, cursor: loading ? "wait" : "pointer",
-                }}
-              >
-                {loading ? "Generating…" : "Generate"}
-              </button>
-            </>
-          )}
-        </>
+        {/* Generate + Show on Main Map */}
+        {selected.length > 0 && (
+          <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 6 }}>
+            {!hasRaster ? (
+              <p style={{ fontSize: 9, color: "#64748b", background: "#f1f5f9", borderRadius: 6, padding: "6px 10px", textAlign: "center" }}>
+                Raster analysis not yet available for the selected criteria.
+              </p>
+            ) : (
+              <>
+                {error && <p style={{ fontSize: 9, color: "#dc2626", background: "#fef2f2", borderRadius: 6, padding: "4px 8px" }}>{error}</p>}
+                <button
+                  type="button"
+                  disabled={loading || selectedZones.length === 0}
+                  onClick={handleGenerate}
+                  style={{
+                    width: "100%", padding: "8px 0", fontSize: 11, fontWeight: 700, borderRadius: 8,
+                    background: loading || !selectedZones.length ? "#cbd5e1" : "#0369a1",
+                    color: "#fff", border: "none", cursor: loading ? "wait" : "pointer",
+                    boxShadow: loading || !selectedZones.length ? "none" : "0 2px 8px rgba(3,105,161,0.25)",
+                  }}
+                >
+                  {loading ? "Generating…" : "Generate"}
+                </button>
+                {localTiff && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (shownOnMain) {
+                        onPresentToMain?.(null as unknown as ArrayBuffer);
+                        setShownOnMain(false);
+                      } else {
+                        onPresentToMain?.(localTiff);
+                        setShownOnMain(true);
+                      }
+                    }}
+                    style={{
+                      width: "100%", padding: "7px 0", fontSize: 11, fontWeight: 700, borderRadius: 8,
+                      background: shownOnMain ? "#059669" : "#fff",
+                      color: shownOnMain ? "#fff" : "#059669",
+                      border: "1.5px solid #10b981",
+                      cursor: "pointer",
+                      boxShadow: shownOnMain ? "0 2px 8px rgba(5,150,105,0.25)" : "none",
+                      transition: "all 0.2s",
+                    }}
+                  >
+                    {shownOnMain ? "✓ Shown on Main Map" : "Show on Main Map"}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Arth Ganga zonal stats section ──────────────────────────────────── */
+const ARTH_CRITERIA_MAP: Record<string, { label: string; borderColor: string; bgColor: string; headerBg: string; textColor: string }> = {
+  "Agriculture (crop area, water demand)": { label: "Agriculture",        borderColor: "#bbf7d0", bgColor: "#f0fdf4", headerBg: "#dcfce7", textColor: "#14532d" },
+  "Irrigation dependency":                 { label: "Irrigation",         borderColor: "#a5f3fc", bgColor: "#ecfeff", headerBg: "#cffafe", textColor: "#164e63" },
+  "Tourism & cultural nodes":              { label: "Tourism & Culture",   borderColor: "#fde68a", bgColor: "#fffbeb", headerBg: "#fef9c3", textColor: "#78350f" },
+  "Ghats & heritage sites":               { label: "Ghats & Heritage",    borderColor: "#fecdd3", bgColor: "#fff1f2", headerBg: "#ffe4e6", textColor: "#881337" },
+  "Economic activity zones":               { label: "Economic Activity",   borderColor: "#e9d5ff", bgColor: "#faf5ff", headerBg: "#f3e8ff", textColor: "#581c87" },
+};
+
+function ArthGangaSection({ criterion, selectedZones }: { criterion: string; selectedZones: string[] }) {
+  const cfg = ARTH_CRITERIA_MAP[criterion];
+  const [stats, setStats] = useState<Record<string, { mean: number | null; min: number | null; max: number | null }> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const zonesKey = selectedZones.join(",");
+
+  useEffect(() => {
+    if (!selectedZones.length) return;
+    setLoading(true); setError(""); setStats(null);
+    fetch(`${BACKEND}/analysis/arth-ganga`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selected_zones: selectedZones, criteria: [criterion] }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        const result = d?.arth_ganga?.[criterion];
+        if (result?.by_zone) setStats(result.by_zone);
+        else setError(result?.error || d?.detail || "No data returned");
+      })
+      .catch((e) => setError(e.message || "Failed"))
+      .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zonesKey, criterion]);
+
+  if (!cfg) return null;
+  return (
+    <div style={{ marginTop: 8, borderRadius: 8, border: `1px solid ${cfg.borderColor}`, background: cfg.bgColor, padding: "8px 10px" }}>
+      <p style={{ margin: "0 0 6px", fontSize: 10, fontWeight: 700, color: cfg.textColor }}>{cfg.label} — Zonal Stats</p>
+      {loading ? <Spin /> : error ? <Err msg={error} /> : null}
+      {!loading && !error && stats && (
+        <div style={{ overflowX: "auto", borderRadius: 4, border: `1px solid ${cfg.borderColor}`, background: "#fff" }}>
+          <table style={{ fontSize: 9, borderCollapse: "collapse", width: "100%", color: "#334155" }}>
+            <thead>
+              <tr style={{ background: cfg.headerBg }}>
+                <th style={{ padding: "2px 6px", textAlign: "left", fontWeight: 700, borderBottom: `1px solid ${cfg.borderColor}` }}>Zone</th>
+                <th style={{ padding: "2px 6px", textAlign: "right", fontWeight: 700, borderBottom: `1px solid ${cfg.borderColor}` }}>Mean</th>
+                <th style={{ padding: "2px 6px", textAlign: "right", fontWeight: 700, borderBottom: `1px solid ${cfg.borderColor}` }}>Min</th>
+                <th style={{ padding: "2px 6px", textAlign: "right", fontWeight: 700, borderBottom: `1px solid ${cfg.borderColor}` }}>Max</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(stats).map(([zone, s], i) => (
+                <tr key={zone} style={{ background: i % 2 === 0 ? "#fff" : cfg.bgColor }}>
+                  <td style={{ padding: "2px 6px", fontSize: 9, fontWeight: 600, borderBottom: "1px solid #e2e8f0" }}>{zone}</td>
+                  <td style={{ padding: "2px 6px", fontSize: 9, textAlign: "right", borderBottom: "1px solid #e2e8f0" }}>{s.mean != null ? Number(s.mean).toFixed(4) : "—"}</td>
+                  <td style={{ padding: "2px 6px", fontSize: 9, textAlign: "right", borderBottom: "1px solid #e2e8f0" }}>{s.min != null ? Number(s.min).toFixed(4) : "—"}</td>
+                  <td style={{ padding: "2px 6px", fontSize: 9, textAlign: "right", borderBottom: "1px solid #e2e8f0" }}>{s.max != null ? Number(s.max).toFixed(4) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Jeevant Ganga zonal stats section ────────────────────────────────── */
+const JEEVANT_CRITERIA_MAP: Record<string, { label: string; borderColor: string; bgColor: string; headerBg: string; textColor: string }> = {
+  "Wetlands, ponds, lakes":                      { label: "Wetlands",      borderColor: "#99f6e4", bgColor: "#f0fdfa", headerBg: "#ccfbf1", textColor: "#134e4a" },
+  "Riparian vegetation":                         { label: "Riparian Veg.", borderColor: "#bbf7d0", bgColor: "#f0fdf4", headerBg: "#dcfce7", textColor: "#14532d" },
+  "Biodiversity (fish, birds, invasive species)":{ label: "Biodiversity",  borderColor: "#fef08a", bgColor: "#fefce8", headerBg: "#fef9c3", textColor: "#713f12" },
+  "Floodplain & habitat data":                   { label: "Floodplain",    borderColor: "#a5b4fc", bgColor: "#eef2ff", headerBg: "#e0e7ff", textColor: "#312e81" },
+};
+
+function JeevantGangaSection({ criterion, selectedZones }: { criterion: string; selectedZones: string[] }) {
+  const cfg = JEEVANT_CRITERIA_MAP[criterion];
+  const [stats, setStats] = useState<Record<string, { mean: number | null; min: number | null; max: number | null }> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const zonesKey = selectedZones.join(",");
+
+  useEffect(() => {
+    if (!selectedZones.length) return;
+    setLoading(true); setError(""); setStats(null);
+    fetch(`${BACKEND}/analysis/jeevant-ganga`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selected_zones: selectedZones, criteria: [criterion] }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        const result = d?.jeevant_ganga?.[criterion];
+        if (result?.by_zone) setStats(result.by_zone);
+        else setError(result?.error || d?.detail || "No data returned");
+      })
+      .catch((e) => setError(e.message || "Failed"))
+      .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zonesKey, criterion]);
+
+  if (!cfg) return null;
+  return (
+    <div style={{ marginTop: 8, borderRadius: 8, border: `1px solid ${cfg.borderColor}`, background: cfg.bgColor, padding: "8px 10px" }}>
+      <p style={{ margin: "0 0 6px", fontSize: 10, fontWeight: 700, color: cfg.textColor }}>{cfg.label} — Zonal Stats</p>
+      {loading ? <Spin /> : error ? <Err msg={error} /> : null}
+      {!loading && !error && stats && (
+        <div style={{ overflowX: "auto", borderRadius: 4, border: `1px solid ${cfg.borderColor}`, background: "#fff" }}>
+          <table style={{ fontSize: 9, borderCollapse: "collapse", width: "100%", color: "#334155" }}>
+            <thead>
+              <tr style={{ background: cfg.headerBg }}>
+                <th style={{ padding: "2px 6px", textAlign: "left", fontWeight: 700, borderBottom: `1px solid ${cfg.borderColor}` }}>Zone</th>
+                <th style={{ padding: "2px 6px", textAlign: "right", fontWeight: 700, borderBottom: `1px solid ${cfg.borderColor}` }}>Mean</th>
+                <th style={{ padding: "2px 6px", textAlign: "right", fontWeight: 700, borderBottom: `1px solid ${cfg.borderColor}` }}>Min</th>
+                <th style={{ padding: "2px 6px", textAlign: "right", fontWeight: 700, borderBottom: `1px solid ${cfg.borderColor}` }}>Max</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(stats).map(([zone, s], i) => (
+                <tr key={zone} style={{ background: i % 2 === 0 ? "#fff" : cfg.bgColor }}>
+                  <td style={{ padding: "2px 6px", fontSize: 9, fontWeight: 600, borderBottom: "1px solid #e2e8f0" }}>{zone}</td>
+                  <td style={{ padding: "2px 6px", fontSize: 9, textAlign: "right", borderBottom: "1px solid #e2e8f0" }}>{s.mean != null ? Number(s.mean).toFixed(4) : "—"}</td>
+                  <td style={{ padding: "2px 6px", fontSize: 9, textAlign: "right", borderBottom: "1px solid #e2e8f0" }}>{s.min != null ? Number(s.min).toFixed(4) : "—"}</td>
+                  <td style={{ padding: "2px 6px", fontSize: 9, textAlign: "right", borderBottom: "1px solid #e2e8f0" }}>{s.max != null ? Number(s.max).toFixed(4) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Gyan Ganga zonal stats section ──────────────────────────────────── */
+const GYAN_CRITERIA_MAP: Record<string, { label: string; borderColor: string; bgColor: string; headerBg: string; textColor: string }> = {
+  "All baseline datasets":                       { label: "Baseline Datasets",    borderColor: "#cbd5e1", bgColor: "#f8fafc", headerBg: "#e2e8f0", textColor: "#0f172a" },
+  "Remote sensing + GIS maps":                   { label: "Remote Sensing / GIS", borderColor: "#bef264", bgColor: "#f7fee7", headerBg: "#ecfccb", textColor: "#365314" },
+  "SWAT model outputs":                          { label: "SWAT Model",           borderColor: "#7dd3fc", bgColor: "#f0f9ff", headerBg: "#e0f2fe", textColor: "#0c4a6e" },
+  "Hydrogeology (aquifer, MAR, paleo-channels)": { label: "Hydrogeology",         borderColor: "#fdba74", bgColor: "#fff7ed", headerBg: "#ffedd5", textColor: "#7c2d12" },
+  "Monitoring stations & sensors":               { label: "Monitoring Sensors",   borderColor: "#c4b5fd", bgColor: "#f5f3ff", headerBg: "#ede9fe", textColor: "#4c1d95" },
+};
+
+function GyanGangaSection({ criterion, selectedZones }: { criterion: string; selectedZones: string[] }) {
+  const cfg = GYAN_CRITERIA_MAP[criterion];
+  const [stats, setStats] = useState<Record<string, { mean: number | null; min: number | null; max: number | null }> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const zonesKey = selectedZones.join(",");
+
+  useEffect(() => {
+    if (!selectedZones.length) return;
+    setLoading(true); setError(""); setStats(null);
+    fetch(`${BACKEND}/analysis/gyan-ganga`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selected_zones: selectedZones, criteria: [criterion] }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        const result = d?.gyan_ganga?.[criterion];
+        if (result?.by_zone) setStats(result.by_zone);
+        else setError(result?.error || d?.detail || "No data returned");
+      })
+      .catch((e) => setError(e.message || "Failed"))
+      .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zonesKey, criterion]);
+
+  if (!cfg) return null;
+  return (
+    <div style={{ marginTop: 8, borderRadius: 8, border: `1px solid ${cfg.borderColor}`, background: cfg.bgColor, padding: "8px 10px" }}>
+      <p style={{ margin: "0 0 6px", fontSize: 10, fontWeight: 700, color: cfg.textColor }}>{cfg.label} — Zonal Stats</p>
+      {loading ? <Spin /> : error ? <Err msg={error} /> : null}
+      {!loading && !error && stats && (
+        <div style={{ overflowX: "auto", borderRadius: 4, border: `1px solid ${cfg.borderColor}`, background: "#fff" }}>
+          <table style={{ fontSize: 9, borderCollapse: "collapse", width: "100%", color: "#334155" }}>
+            <thead>
+              <tr style={{ background: cfg.headerBg }}>
+                <th style={{ padding: "2px 6px", textAlign: "left", fontWeight: 700, borderBottom: `1px solid ${cfg.borderColor}` }}>Zone</th>
+                <th style={{ padding: "2px 6px", textAlign: "right", fontWeight: 700, borderBottom: `1px solid ${cfg.borderColor}` }}>Mean</th>
+                <th style={{ padding: "2px 6px", textAlign: "right", fontWeight: 700, borderBottom: `1px solid ${cfg.borderColor}` }}>Min</th>
+                <th style={{ padding: "2px 6px", textAlign: "right", fontWeight: 700, borderBottom: `1px solid ${cfg.borderColor}` }}>Max</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(stats).map(([zone, s], i) => (
+                <tr key={zone} style={{ background: i % 2 === 0 ? "#fff" : cfg.bgColor }}>
+                  <td style={{ padding: "2px 6px", fontSize: 9, fontWeight: 600, borderBottom: "1px solid #e2e8f0" }}>{zone}</td>
+                  <td style={{ padding: "2px 6px", fontSize: 9, textAlign: "right", borderBottom: "1px solid #e2e8f0" }}>{s.mean != null ? Number(s.mean).toFixed(4) : "—"}</td>
+                  <td style={{ padding: "2px 6px", fontSize: 9, textAlign: "right", borderBottom: "1px solid #e2e8f0" }}>{s.min != null ? Number(s.min).toFixed(4) : "—"}</td>
+                  <td style={{ padding: "2px 6px", fontSize: 9, textAlign: "right", borderBottom: "1px solid #e2e8f0" }}>{s.max != null ? Number(s.max).toFixed(4) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
@@ -951,17 +1459,21 @@ function CombinedWeightPanel({
 type Props = {
   activeCriteria: string[];
   selectedZones: string[];
-  activeModule?: "Aviral Ganga" | "Nirmal Ganga" | "Jan Ganga" | "Arth Ganga" | "STP Suitability";
+  activeModule?: "Aviral Ganga" | "Nirmal Ganga" | "Jan Ganga" | "Arth Ganga" | "Gyan Ganga" | "Jeevant Ganga" | "STP Suitability";
   backendBase?: string;
-  onCombinedTiffUpdate?: (tiff: ArrayBuffer) => void;
+  combinedMeta?: CombinedMeta;
+  onViewerTiffUpdate?: (tiff: ArrayBuffer | null) => void;
+  onPresentToMain?: (tiff: ArrayBuffer) => void;
 };
 
-export default function CriteriaDataPanel({ activeCriteria, selectedZones, activeModule = "Aviral Ganga" as "Aviral Ganga" | "Nirmal Ganga" | "Jan Ganga" | "Arth Ganga" | "STP Suitability", backendBase = "", onCombinedTiffUpdate }: Props) {
+export default function CriteriaDataPanel({ activeCriteria, selectedZones, activeModule = "Aviral Ganga" as "Aviral Ganga" | "Nirmal Ganga" | "Jan Ganga" | "Arth Ganga" | "Gyan Ganga" | "Jeevant Ganga" | "STP Suitability", backendBase = "", combinedMeta, onViewerTiffUpdate, onPresentToMain }: Props) {
   return (
-    <div style={{ width: "100%", height: "100%", overflowY: "auto", background: "#f0f6ff", borderLeft: "1px solid #bfdbfe", padding: "6px", display: "flex", flexDirection: "column", gap: 10 }}>
+    <div style={{ width: "100%", minHeight: "100%", background: "#f0f6ff", borderLeft: "1px solid #bfdbfe", padding: "6px", display: "flex", flexDirection: "column", gap: 10 }}>
       {activeCriteria.includes("Rainfall & runoff") && <RainfallSection selectedZones={selectedZones} />}
       {activeCriteria.includes("Groundwater recharge") && <GroundwaterSection selectedZones={selectedZones} />}
-      {(activeCriteria.includes("Tributary & drain flow") || activeCriteria.includes("Drains & discharge points")) && <TributarySection selectedZones={selectedZones} />}
+      {(activeCriteria.includes("River flow (monthly)") || activeCriteria.includes("River flow")) && <RiverFlowSection selectedZones={selectedZones} />}
+      {(activeCriteria.includes("Tributary & drain flow") || activeCriteria.includes("Drains & discharge points")) && <DrainFlowSection selectedZones={selectedZones} />}
+      {activeCriteria.includes("Channel geometry (width, depth)") && <ChannelGeomSection selectedZones={selectedZones} />}
       {activeCriteria.includes("DEM, slope maps") && <DemSlopeSection selectedZones={selectedZones} />}
       {activeCriteria.includes("River water quality") && <RwqSection selectedZones={selectedZones} />}
       {activeCriteria.includes("Groundwater quality") && <GwqSection selectedZones={selectedZones} />}
@@ -969,12 +1481,23 @@ export default function CriteriaDataPanel({ activeCriteria, selectedZones, activ
       {activeCriteria.includes("STP details") && <StpSection selectedZones={selectedZones} />}
       {activeCriteria.includes("Population (urban/rural)") && <PopulationSection selectedZones={selectedZones} />}
       {activeCriteria.includes("Gram Panchayat data") && <GramPanchayatSection selectedZones={selectedZones} />}
+      {Object.keys(ARTH_CRITERIA_MAP).filter(c => activeCriteria.includes(c)).map(c => (
+        <ArthGangaSection key={c} criterion={c} selectedZones={selectedZones} />
+      ))}
+      {Object.keys(GYAN_CRITERIA_MAP).filter(c => activeCriteria.includes(c)).map(c => (
+        <GyanGangaSection key={c} criterion={c} selectedZones={selectedZones} />
+      ))}
+      {Object.keys(JEEVANT_CRITERIA_MAP).filter(c => activeCriteria.includes(c)).map(c => (
+        <JeevantGangaSection key={c} criterion={c} selectedZones={selectedZones} />
+      ))}
       {activeCriteria.includes("Combined Output") && backendBase && (
         <CombinedWeightPanel
           selectedZones={selectedZones}
           backendBase={backendBase}
           activeModule={activeModule}
-          onCombinedTiffUpdate={onCombinedTiffUpdate}
+          combinedMeta={combinedMeta}
+          onViewerTiffUpdate={onViewerTiffUpdate}
+          onPresentToMain={onPresentToMain}
         />
       )}
     </div>
